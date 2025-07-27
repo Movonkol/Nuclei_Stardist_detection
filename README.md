@@ -54,6 +54,3 @@ Launch the macro to set parameters via dialog boxes:
   * `Image`: series identifier (e.g. `sample.tif_Series1`)
   * `Nuclei_Count`: detected nuclei count
 
-## License
-
-MIT © Your Name
