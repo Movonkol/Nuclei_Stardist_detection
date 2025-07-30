@@ -1,58 +1,139 @@
-# StarDist Batch Analysis & Intensity Measurement
+# Stardist Batch Analysis & Intensity Measurement
 
-This repository provides three FIJI/ImageJ scripts for high‑throughput analysis of fluorescence microscopy images:
+This repository contains scripts for bulk analysis of microscopy images in FIJI/ImageJ:
 
-- **StarDist Batch Analysis**: Automated nuclei segmentation and morphology measurement using StarDist.  
-- **Intensity Measurement**: Quantitative per‑well and per‑series intensity analysis, with optional background subtraction, thresholding, and heatmap generation.  
-- **Positive/Negative Classification** *(optional)*: Classify wells based on normalized intensity thresholds.
+* **stardist\_batch.ijm**: A StarDist-based nuclei segmentation macro
+* **intensity.py**: A Jython script for quantitative intensity measurements
+* **positiv\_negativ.py**: A script for positive/negative classification based on measured intensities
 
----
-
-## Table of Contents
-
-- [Features](#features)  
-- [Installation](#installation)  
-- [Configuration](#configuration)  
-- [Usage](#usage)  
-  - [StarDist Batch Analysis](#stardist-batch-analysis)  
-  - [Intensity Measurement](#intensity-measurement)  
-  - [Positive/Negative Classification](#positivenegative-classification)  
-- [Outputs & CSV Formats](#outputs--csv-formats)  
-- [Contributing](#contributing)  
+All scripts are licensed under the MIT License.
 
 ---
 
-## Features
+## StarDist Batch Analysis
 
-### StarDist Batch Analysis
+Automated segmentation and analysis of cell nuclei in bulk using StarDist and Bio-Formats.
 
-- **Automatic parameter prompts** for model, probability threshold, NMS threshold, tiling, channel patterns, and size filters.  
-- **Automatic channel detection** (e.g., DAPI) via customizable patterns.  
-- **Size filtering** to exclude artifacts.  
-- **Headless StarDist segmentation** with Bio‑Formats support.  
-- **Morphology measurements** (area, roundness) per object.  
-- **Batch processing** of multi‑series image files (ND2, LIF, TIFF).  
-- **CSV export** of nuclei counts and per‑object morphology.
+### Features
 
-### Intensity Measurement (`intensity.py`)
+* **Automatic Parameter Configuration**: Prompts for model, probability & NMS thresholds, tiling, channel patterns, and size filters.
+* **Channel Detection**: Identifies target channel(s) (e.g. DAPI) via customizable patterns.
+* **Size Filtering**: Applies minimum/maximum label size to exclude artifacts.
+* **StarDist Segmentation**: Runs headless StarDist for label image generation.
+* **Morphology Measurement**: Measures area and circularity for each object.
+* **CSV Export**: Generates `nuclei_counts.csv` (summary) and `nuclei_morphology.csv` (per-object data).
+* **Batch Processing**: Processes all supported image files in a folder, including multi-series imports.
 
-- **Interactive prompts** for marker channels, thresholding method (Otsu, Yen, Moments, or fixed), and background subtraction parameters.  
-- **Optional background subtraction** with rolling‑ball radius and median filtering.  
-- **Per‑series and per‑well intensity metrics** (positive pixels, mean, integrated, normalized intensity).  
-- **Optional heatmap generation** saved as PNGs.  
-- **Batch processing** with Bio‑Formats multi‑series support.
+### Installation
 
-### Positive/Negative Classification (`positiv_negativ.py`)
+```bash
+git clone https://github.com/yourusername/stardist-batch.git
+cd stardist-batch
+```
 
-- **Threshold‑based classification** of wells/images by normalized intensity.  
-- **Simple workflow**: prompts for threshold and input folder.  
-- **Generates** `well_classification.csv`.
+1. Install FIJI/ImageJ (Java 8+).
+2. Ensure the following plugins are installed:
+
+   * Bio-Formats (for ND2/LIF/TIFF import)
+   * StarDist plugin
+   * MorphoLibJ (for morphological operations)
+   * Jython (included with FIJI)
+3. Place `stardist_batch.ijm` and `intensity.py` in your FIJI scripts directory.
+4. Restart FIJI.
+
+### Configuration
+
+Edit the top of `stardist_batch.ijm` for hardcoded defaults:
+
+```java
+model = "Versatile (fluorescent nuclei)"
+probability_thresh = 0.5
+nms_thresh = 0.5
+tiles_str = "1,1"
+channel_patterns_str = "c1-,dapi"
+min_label_size = 50
+max_label_size = 2500
+```
+
+### Usage
+
+1. Open FIJI > **Plugins > Scripting > Open...**
+2. Select and run `stardist_batch.ijm`.
+3. Configure parameters in the dialog prompts.
+4. Choose the folder containing your images.
+5. Wait for processing; progress appears in the console.
+
+### Output
+
+* **Annotated label windows** (auto-closed)
+* `nuclei_counts.csv` (image name, nuclei count)
+* `nuclei_morphology.csv` (image name, object index, area, roundness)
+
+### CSV Format
+
+| Column                      | Description                     |
+| --------------------------- | ------------------------------- |
+| Image                       | Filename or series identifier   |
+| Nuclei\_Count               | Total number of detected nuclei |
+| Object (nuclei\_morphology) | Object index (per image)        |
+| Area                        | Object area in pixels           |
+| Roundness                   | Object circularity metric       |
 
 ---
 
-## Installation
+## Intensity Measurement (`intensity.py`)
 
-1. Clone this repository:  
-   ```bash
-   git clone https://github.com/yourusername/stardist-batch.git
-   cd stardist-batch
+Measures integrated intensities of marker channels on a per-series and per-well basis.
+
+### Features
+
+* **Interactive Configuration**: Prompts for marker channel patterns, thresholding (automatic or fixed), background subtraction, heatmap generation, and window closing.
+* **Background Subtraction**: Rolling-ball radius, repetitions, median filter, or defaults.
+* **Thresholding**: Automatic (Otsu, Yen, Moments) with scaling factor or fixed value.
+* **CSV Export**: `intensity_measurements.csv` (per-series) and `intensity_measurements_per_well.csv` (aggregated per-well).
+* **Optional Heatmaps**: Pseudocolor heatmaps saved as PNGs in a `heatmaps/` subfolder.
+* **Batch Processing**: Handles multi-series files and all supported formats.
+
+### Usage
+
+1. In FIJI, go to **Plugins > Scripting > Run...** and select `intensity.py`.
+2. Follow the prompts:
+
+   1. Marker channel pattern(s)
+   2. Automatic thresholding? If yes, choose method and scaling; otherwise, enter fixed value.
+   3. Background subtraction? If yes, choose custom or default settings.
+   4. Generate heatmaps? Yes/No.
+   5. Close images after processing? Yes/No.
+3. Select the folder with your images.
+4. Wait for processing; progress appears in the console.
+
+### Output
+
+* `intensity_measurements.csv` (per-series: positive pixels, mean intensity, integrated intensity, nuclei count, normalized intensity)
+* `intensity_measurements_per_well.csv` (aggregated per-well metrics)
+* Optional heatmaps in `heatmaps/` if enabled.
+
+---
+
+## Positive/Negative Classification (`positiv_negativ.py`)
+
+Classifies wells/images as positive or negative based on thresholded normalized intensity.
+
+### Features
+
+* **Threshold-based Classification**: Applies user-defined threshold on normalized intensity.
+* **CSV I/O**: Reads `intensity_measurements_per_well.csv` and writes `well_classification.csv`.
+* **Simple Workflow**: Prompts for threshold value and input folder.
+
+### Usage
+
+1. Ensure `nuclei_counts.csv` and `intensity_measurements_per_well.csv` exist (from previous scripts).
+2. In FIJI, run `positiv_negativ.py` via **Plugins > Scripting > Run...**
+3. Enter the threshold and select the folder with CSV files.
+4. The script outputs `well_classification.csv` to the same folder.
+
+---
+
+## Contributing
+
+Contributions are welcome! Please open issues or submit pull requests on GitHub.
