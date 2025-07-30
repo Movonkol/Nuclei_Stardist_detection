@@ -2,7 +2,7 @@
 
 This repository contains scripts for bulk analysis of microscopy images in FIJI/ImageJ:
 
-* **stardist\_batch.ijm**: A StarDist-based nuclei segmentation macro
+* **nuclei_stardist_sorted.py**: A StarDist-based nuclei segmentation macro
 * **intensity.py**: A Jython script for quantitative intensity measurements
 * **positiv\_negativ.py**: A script for positive/negative classification based on measured intensities
 
