@@ -2,9 +2,9 @@
 
 This repository contains scripts for bulk analysis of microscopy images in FIJI/ImageJ:
 
-* **nuclei_stardist_sorted.py**: A StarDist-based nuclei segmentation macro
+* **nuclei_stardist_sorted.py**: A Jython script for StarDist-based nuclei segmentation macro
 * **intensity.py**: A Jython script for quantitative intensity measurements
-* **positiv\_negativ.py**: A script for positive/negative classification based on measured intensities
+* **positiv\_negativ.py**: A Jython script for positive/negative classification based on measured intensities
 
 All scripts are licensed under the MIT License.
 
@@ -36,7 +36,7 @@ cd stardist-batch
 
    * Bio-Formats (for ND2/LIF/TIFF import)
    * StarDist plugin
-   * MorphoLibJ (for morphological operations)
+   * MorphoLibJ and  IJPB-plugin (for morphological operations)
    * Jython (included with FIJI)
 3. Place `stardist_batch.ijm` and `intensity.py` in your FIJI scripts directory.
 4. Restart FIJI.
