@@ -122,10 +122,9 @@ Classifies wells/images as positive or negative based on thresholded normalized 
 
 ### Usage
 
-1. Ensure `nuclei_counts.csv` and `intensity_measurements_per_well.csv` exist (from previous scripts).
-2. In FIJI, run `positiv_negativ.py` via **Plugins > Scripting > Run...**
-3. Enter the threshold and select the folder with CSV files.
-4. The script outputs `well_classification.csv` to the same folder.
+1. In FIJI, run `positiv_negativ.py` via **Plugins > Scripting > Run...**
+2. Enter the threshold and select the folder with CSV files.
+3. The script outputs `well_classification.csv` to the same folder.
 
 ---
 
