@@ -26,11 +26,6 @@ Automated segmentation and analysis of cell nuclei in bulk using StarDist and Bi
 
 ### Installation
 
-```bash
-git clone https://github.com/yourusername/stardist-batch.git
-cd stardist-batch
-```
-
 1. Install FIJI/ImageJ (Java 8+).
 2. Ensure the following plugins are installed:
 
@@ -43,7 +38,7 @@ cd stardist-batch
 
 ### Configuration
 
-Edit the top of `stardist_batch.ijm` for hardcoded defaults:
+Edit the top of `nuclei_stardist_sorted.py` for hardcoded defaults:
 
 ```java
 model = "Versatile (fluorescent nuclei)"
@@ -58,7 +53,7 @@ max_label_size = 2500
 ### Usage
 
 1. Open FIJI > **Plugins > Scripting > Open...**
-2. Select and run `stardist_batch.ijm`.
+2. Select and run `nuclei_stardist_sorted.py.
 3. Configure parameters in the dialog prompts.
 4. Choose the folder containing your images.
 5. Wait for processing; progress appears in the console.
