@@ -38,7 +38,7 @@ cd stardist-batch
    * StarDist plugin
    * MorphoLibJ and  IJPB-plugin (for morphological operations)
    * Jython (included with FIJI)
-3. Place `nuclei_stardist_sorted.py` and `Intensity.py` in your FIJI scripts directory.
+3. Place the scripts in your FIJI scripts directory.
 4. Restart FIJI.
 
 ### Configuration
