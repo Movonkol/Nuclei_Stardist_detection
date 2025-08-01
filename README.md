@@ -108,26 +108,45 @@ Measures integrated intensities of marker channels on a per-series and per-well 
 * `intensity_measurements_per_well.csv` (aggregated per-well metrics)
 * Optional heatmaps in `heatmaps/` if enabled.
 
----
+# Positive/Negative Classification
 
-## Positive/Negative Classification (`positiv_negativ.py`)
+Configure the parameters at the top of the script before running:
 
-Classifies wells/images as positive or negative based on thresholded normalized intensity.
-
-### Features
-
-* **Threshold-based Classification**: Applies user-defined threshold on normalized intensity.
-* **CSV I/O**: Reads `intensity_measurements_per_well.csv` and writes `well_classification.csv`.
-* **Simple Workflow**: Prompts for threshold value and input folder.
+- **NUCLEI_CHANNEL_KEY** (e.g., `"c4-"`): Substring to identify the nuclei/DAPI channel window  
+- **MARKER_CHANNEL_KEYS** (e.g., `["c3-"]`): List of substrings for marker channel windows  
+- **Size and shape filters**:  
+  - `SIZE_MIN`, `SIZE_MAX` (pixel area)  
+  - `ASPECT_RATIO_MAX`  
+- **StarDist parameters**:  
+  - `model` (e.g., "Versatile (fluorescent nuclei)")  
+  - `prob` (probability threshold)  
+  - `nms` (non-maximum suppression threshold)  
+  - `tiles_str` (e.g., "1,1")  
+- **Optional background subtraction**:  
+  - `ROLLING_RADIUS`, `ROLLING_REPEAT`, `MEDIAN_RADIUS`  
+- **Thresholding method**:  
+  - Automatic (method and factor) or fixed value (`FIXED_THRESHOLD`)  
 
 ### Usage
 
-1. In FIJI, run `positiv_negativ.py` via **Plugins > Scripting > Run...**
-2. Enter the threshold and select the folder with CSV files.
-3. The script outputs `well_classification.csv` to the same folder.
+1. In FIJI, go to **Plugins ▶ Scripting ▶ Run…**, then select `positiv_negativ.py`.  
+2. Choose the folder containing your image files (`.tif, .tiff, .png, .jpg, .lif, .nd2`).  
+3. Respond to the dialog prompts for background subtraction, thresholding, and other options.  
+4. The script processes each series in the folder by:  
+   1. Splitting channels and selecting nuclei (DAPI) and marker windows.  
+   2. Segmenting nuclei with StarDist and filtering ROIs by size and shape.  
+   3. (If enabled) Applying background subtraction and thresholding to the marker channel.  
+   4. Classifying each nucleus as **Positive** (green outline) or **Negative** (red outline).  
+   5. Saving two images per series and marker:  
+      - `<series>_<marker>_RAW.png`  
+      - `<series>_<marker>_RAW_classified.png`  
+   6. Appending counts to `nuclei_counts.csv` in the selected folder.  
 
----
+### Output: `nuclei_counts.csv`
 
-## Contributing
-
-Contributions are welcome! Please open issues or submit pull requests on GitHub.
+| Column               | Description                                    |
+|----------------------|------------------------------------------------|
+| **Image**            | Series name (e.g., `Filename_Series1_c3`)      |
+| **Nuclei_Count**     | Total number of filtered nuclei                |
+| **Positive_Nuclei**  | Number of nuclei classified as positive        |
+| **Negative_Nuclei**  | Number of nuclei classified as negative        |
