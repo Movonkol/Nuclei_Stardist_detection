@@ -27,7 +27,7 @@ if not folder:
     IJ.error("No folder selected")
     exit()
 
-csv_counts   = folder + File.separator + "nuclei_counts.csv"
+csv_counts     = folder + File.separator + "nuclei_counts.csv"
 csv_morphology = folder + File.separator + "nuclei_morphology.csv"
 
 # === Export functions ===
@@ -37,7 +37,7 @@ def export_counts(image_name, total_count, path):
     pw = PrintWriter(BufferedWriter(FileWriter(f, True)))
     if first:
         pw.println("Image,Total_Nuclei_Count")
-    pw.println(f"{image_name},{total_count}")
+    pw.println("%s,%d" % (image_name, total_count))
     pw.close()
 
 def export_morphology(image_name, mean_area, mean_roundness, path):
@@ -46,7 +46,7 @@ def export_morphology(image_name, mean_area, mean_roundness, path):
     pw = PrintWriter(BufferedWriter(FileWriter(f, True)))
     if first:
         pw.println("Image,Mean_Area,Mean_Roundness")
-    pw.println(f"{image_name},{mean_area:.2f},{mean_roundness:.4f}")
+    pw.println("%s,%.2f,%.4f" % (image_name, mean_area, mean_roundness))
     pw.close()
 
 def close_stardist_dialogs():
@@ -57,7 +57,7 @@ def close_stardist_dialogs():
 
 # === Batch-processing ===
 for f in File(folder).listFiles():
-    if not f.isFile(): 
+    if not f.isFile():
         continue
     name = f.getName().lower()
     if not name.endswith((".tif", ".tiff", ".png", ".jpg", ".lif", ".nd2")):
@@ -75,7 +75,7 @@ for f in File(folder).listFiles():
     imps = BF.openImagePlus(opts)
 
     for idx, imp in enumerate(imps):
-        series_title = f"{f.getName()}_Series{idx+1}"
+        series_title = "%s_Series%d" % (f.getName(), idx+1)
         imp.setTitle(series_title)
         imp.show()
         print("→ Processing:", series_title)
@@ -90,7 +90,7 @@ for f in File(folder).listFiles():
                 dapi = win
                 break
         if dapi is None:
-            IJ.error(f"Channel not found in {series_title}")
+            IJ.error("Channel not found in %s" % series_title)
             IJ.run("Close All")
             continue
         dapi.show()
@@ -102,16 +102,14 @@ for f in File(folder).listFiles():
         cmd = (
             "command=[de.csbdresden.stardist.StarDist2D],"
             "args=["
-              f"'input':'{dapi.getTitle()}','modelChoice':'{model}',"
-              "'normalizeInput':'true',"
+              "'input':'%s','modelChoice':'%s','normalizeInput':'true',"
               "'percentileBottom':'0.0','percentileTop':'100.0',"
-              f"'probThresh':'{prob}','nmsThresh':'{nms}',"
-              "'outputType':'Label Image',"
-              f"'nTiles':'{n_tiles}',"
+              "'probThresh':'%s','nmsThresh':'%s',"
+              "'outputType':'Label Image','nTiles':'%d',"
               "'excludeBoundary':'2','verbose':'false',"
               "'showCsbdeepProgress':'false','showProbAndDist':'false'"
             "],process=[false]"
-        )
+        ) % (dapi.getTitle(), model, str(prob), str(nms), n_tiles)
         IJ.run("Command From Macro", cmd)
         time.sleep(1)
         close_stardist_dialogs()
@@ -124,7 +122,7 @@ for f in File(folder).listFiles():
                 label = win
                 break
         if label is None:
-            IJ.error(f"Label image not found for {series_title}")
+            IJ.error("Label image not found for %s" % series_title)
             IJ.run("Close All")
             continue
         label.show()
@@ -135,11 +133,11 @@ for f in File(folder).listFiles():
         # 1) Remove all objects smaller than size_min
         IJ.run(label,
                "Label Size Filtering",
-               f"operation=Lower_Than size={size_min} connectivity=4")
+               "operation=Lower_Than size=%d connectivity=4" % size_min)
         # 2) Remove all objects larger than size_max
         IJ.run(label,
                "Label Size Filtering",
-               f"operation=Greater_Than size={size_max} connectivity=4")
+               "operation=Greater_Than size=%d connectivity=4" % size_max)
         time.sleep(0.5)
 
         # Count remaining labels
@@ -157,10 +155,10 @@ for f in File(folder).listFiles():
         pa.analyze(label)
         for i in range(rt.getCounter()):
             area = rt.getValue("Area", i)
-            circ  = rt.getValue("Circ.", i)
-            w     = rt.getValue("Width", i)
-            h     = rt.getValue("Height", i)
-            ar    = max(w, h) / float(min(w, h)) if min(w, h) > 0 else 9999
+            circ = rt.getValue("Circ.", i)
+            w = rt.getValue("Width", i)
+            h = rt.getValue("Height", i)
+            ar = max(w, h) / float(min(w, h)) if min(w, h) > 0 else 9999
             if ar <= aspect_ratio_max:
                 areas.append(area)
                 roundness_values.append(circ)
@@ -176,6 +174,5 @@ for f in File(folder).listFiles():
         mean_area = mean_roundness = 0.0
     export_morphology(f.getName(), mean_area, mean_roundness, csv_morphology)
 
-    print(f"→ {f.getName()}: Total nuclei={total_nuclei}, "
-          f"Mean Area={mean_area:.2f}, Mean Roundness={mean_roundness:.4f}")
-
+    print("→ %s: Total nuclei=%d, Mean Area=%.2f, Mean Roundness=%.4f" %
+          (f.getName(), total_nuclei, mean_area, mean_roundness))
