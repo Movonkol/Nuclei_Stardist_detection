@@ -1,0 +1,213 @@
+# Fiji / Jython: %AREA mit manuellen Thresholds + Map-Export + deutsches CSV + eindeutiges Well-Sheet
+from ij import IJ, WindowManager, ImagePlus
+from ij.io import DirectoryChooser, FileSaver
+from ij.process import ByteProcessor
+from java.io import File, FileWriter, BufferedWriter, PrintWriter
+from loci.plugins import BF
+from loci.plugins.in import ImporterOptions
+import time
+
+# ====================== EINSTELLUNGEN ======================
+total_patterns_str = IJ.getString("Total/Masken-Kanal (z.B. 'c1-,vimentin')", "c1-,vimentin")
+TOTAL_CHANNEL_KEYS = [p.strip().lower() for p in total_patterns_str.split(",") if p.strip()]
+
+pos_patterns_str   = IJ.getString("Positiv-Marker-Kanal (z.B. 'c2-,asma')", "c2-,asma")
+POS_CHANNEL_KEYS   = [p.strip().lower() for p in pos_patterns_str.split(",") if p.strip()]
+
+# Feste Thresholds in Original-Bit-Tiefe (z.B. 16-bit: 0..65535)
+T_FIXED = IJ.getNumber("TOTAL (z.B. Vimentin): fester Threshold", 1000.0)
+P_FIXED = IJ.getNumber("POS (z.B. α-SMA): fester Threshold",     1000.0)
+
+# Optionale Hintergrundkorrektur (für beide gleich)
+apply_bg = IJ.getString("Hintergrund subtrahieren? (ja/nein)", "ja").lower().strip() in ("ja","j","yes","y","true","t","1")
+if apply_bg:
+    use_custom_bg = IJ.getString("Eigene BG-Parameter? (ja/nein)", "ja").lower().strip() in ("ja","j","yes","y","true","t","1")
+    if use_custom_bg:
+        ROLLING_RADIUS = IJ.getNumber("Rolling Ball Radius", 50)
+        ROLLING_REPEAT = int(IJ.getNumber("BG-Wiederholungen (Ganzzahl)", 1))
+        MEDIAN_RADIUS  = IJ.getNumber("Median-Filter Radius (0 = keiner)", 0)
+    else:
+        ROLLING_RADIUS, ROLLING_REPEAT, MEDIAN_RADIUS = 50, 1, 0
+else:
+    ROLLING_RADIUS, ROLLING_REPEAT, MEDIAN_RADIUS = 0, 0, 0
+
+# Map-Export
+SAVE_BINARY_MAP = True
+SAVE_HEATMAP    = IJ.getString("Heatmap-Kopie zusätzlich speichern? (ja/nein)", "nein").lower().strip() in ("ja","j","yes","y","true","t","1")
+
+# ====================== HILFSFUNKTIONEN ======================
+def export_area_row(csv_path, image_name, total_name, pos_name, total_area_px, pos_area_px, percent_pos):
+    """
+    Schreibt eine Zeile in deutschem CSV-Format:
+    - Spaltentrenner: Semikolon ;
+    - Dezimaltrennzeichen: Komma ,
+    """
+    f = File(csv_path)
+    first = not f.exists()
+    pw = PrintWriter(BufferedWriter(FileWriter(f, True)))
+    if first:
+        pw.println("Image;Total_Channel;Positive_Channel;Total_Area_px;Positive_Area_px;Percent_Positive")
+    percent_str = ("%.6f" % float(percent_pos)).replace(".", ",")
+    pw.println("%s;%s;%s;%d;%d;%s" % (
+        image_name, total_name, pos_name,
+        int(total_area_px), int(pos_area_px), percent_str
+    ))
+    pw.close()
+
+def preprocess_and_threshold(imp, fixed_val):
+    """
+    Duplizieren -> optional BG -> liefert (dup_img, threshold, processor).
+    Keine 8-bit-Konvertierung, keine Kontrast-Stretch – arbeitet auf Originalwerten.
+    """
+    ch = imp.duplicate(); ch.show()
+    if apply_bg:
+        if MEDIAN_RADIUS > 0:
+            IJ.run(ch, "Median...", "radius=%d" % int(MEDIAN_RADIUS))
+        for _ in range(max(1, int(ROLLING_REPEAT))):
+            IJ.run(ch, "Subtract Background...", "rolling=%d" % int(ROLLING_RADIUS))
+    thr_eff = float(fixed_val)
+    ip = ch.getProcessor()
+    # Logging der Wertebereiche hilft bei der Wahl des Thresholds
+    try:
+        IJ.log("Channel '%s': min=%d max=%d  (thr=%d)" % (imp.getTitle(), int(ip.getMin()), int(ip.getMax()), int(thr_eff)))
+    except:
+        pass
+    return ch, thr_eff, ip
+
+def make_mask(ip, thr_eff):
+    """Erstellt eine Pixelmaske: >= thr_eff."""
+    w, h = ip.getWidth(), ip.getHeight()
+    idxset = set(); k = 0
+    for y in range(h):
+        for x in range(w):
+            if ip.get(x, y) >= thr_eff:
+                idxset.add(k)
+            k += 1
+    return idxset, w, h
+
+def find_channels_by_keys(windows, keys):
+    hits = []
+    for win in windows:
+        title = (win.getTitle() or "").lower()
+        if any(k in title for k in keys):
+            hits.append(win)
+    return hits
+
+def is_image(file):
+    n = file.getName().lower()
+    return file.isFile() and n.endswith((".tif",".tiff",".png",".jpg",".lif",".nd2"))
+
+def ensure_dir(path):
+    d = File(path)
+    if not d.exists(): d.mkdir()
+    return d
+
+def save_pos_map(total_mask, pos_ip, p_thr, w, h, out_dir, base_name):
+    """Speichert 8-bit Binärmap (255=positiv in Total); optional Heatmap."""
+    bp = ByteProcessor(w, h)
+    k = 0
+    pos_px = 0
+    for y in range(h):
+        for x in range(w):
+            if k in total_mask and pos_ip.get(x, y) >= p_thr:
+                bp.set(x, y, 255)
+                pos_px += 1
+            k += 1
+
+    imp_map = ImagePlus(base_name + "_POSmap", bp)
+
+    if SAVE_BINARY_MAP:
+        FileSaver(imp_map).saveAsTiff(File(out_dir, base_name + "_POSmap_binary.tif").getAbsolutePath())
+
+    if SAVE_HEATMAP:
+        imp_heat = imp_map.duplicate()
+        IJ.run(imp_heat, "Fire", "")
+        FileSaver(imp_heat).saveAsTiff(File(out_dir, base_name + "_POSmap_heat.tif").getAbsolutePath())
+        imp_heat.close()
+
+    imp_map.close()
+    return pos_px
+
+# ====================== IO & OUTPUT ======================
+dc = DirectoryChooser("Ordner mit Bildern wählen")
+folder = dc.getDirectory()
+if not folder:
+    IJ.error("Kein Ordner gewählt"); raise SystemExit
+
+files = sorted([f for f in File(folder).listFiles() if is_image(f)], key=lambda f: f.getName().lower())
+
+csv_file      = folder + File.separator + "percent_area_measurements.csv"
+well_csv_file = folder + File.separator + "percent_area_measurements_per_well.csv"
+maps_dir      = ensure_dir(folder + File.separator + "maps")
+
+# ============================ HAUPTTEIL ============================
+for f in files:
+    # Well-Sheet sammelt NUR das erste gefundene Paar (Total[0] + Pos[0]) über alle Serien
+    well_total_area = 0
+    well_pos_area   = 0
+    well_total_name = ""
+    well_pos_name   = ""
+
+    opts = ImporterOptions()
+    opts.setId(f.getAbsolutePath())
+    opts.setOpenAllSeries(True)
+    opts.setVirtual(True)
+    imps = BF.openImagePlus(opts)
+
+    for sidx, imp in enumerate(imps):
+        series_name = "%s_Series%d" % (f.getName(), sidx + 1)
+        imp.setTitle(series_name); imp.show()
+
+        IJ.run(imp, "Split Channels", ""); time.sleep(0.4)
+
+        windows = [WindowManager.getImage(i) for i in range(1, WindowManager.getImageCount() + 1) if WindowManager.getImage(i) is not None]
+        total_chs = find_channels_by_keys(windows, TOTAL_CHANNEL_KEYS)
+        pos_chs   = find_channels_by_keys(windows, POS_CHANNEL_KEYS)
+
+        if not total_chs or not pos_chs:
+            IJ.log("Warnung: Total- oder Positiv-Kanal fehlt in %s" % series_name)
+            WindowManager.closeAllWindows(); continue
+
+        # Erstes Paar für diese Serie
+        t_win = total_chs[0]
+        p_win = pos_chs[0]
+
+        # Well-Sheet: echte Namen des ersten gefundenen Paares merken
+        if well_total_name == "" and well_pos_name == "":
+            well_total_name = t_win.getTitle()
+            well_pos_name   = p_win.getTitle()
+
+        # TOTAL-Maske
+        total_img, t_thr, t_ip = preprocess_and_threshold(t_win, T_FIXED)
+        total_mask, w, h       = make_mask(t_ip, t_thr)
+        total_area_px          = len(total_mask)
+
+        # POS-Messung & Map
+        pos_img, p_thr, p_ip = preprocess_and_threshold(p_win, P_FIXED)
+        base = "%s__Total[%s]__Pos[%s]" % (series_name, t_win.getTitle(), p_win.getTitle())
+        pos_in_total = 0 if total_area_px == 0 else save_pos_map(total_mask, p_ip, p_thr, w, h, maps_dir, base)
+
+        # Per-Serie-CSV (Semikolon + Dezimal-Komma)
+        percent_pos = 0.0 if total_area_px == 0 else (100.0 * float(pos_in_total) / float(total_area_px))
+        export_area_row(csv_file, series_name, t_win.getTitle(), p_win.getTitle(),
+                        total_area_px, pos_in_total, percent_pos)
+
+        # Well-Sheet-Summen (nur dieses Paar)
+        well_total_area += total_area_px
+        well_pos_area   += pos_in_total
+
+        # Aufräumen
+        try: total_img.changes = False; total_img.close()
+        except: pass
+        try: pos_img.changes = False; pos_img.close()
+        except: pass
+        for win in windows:
+            try: win.changes = False; win.close()
+            except: pass
+        WindowManager.closeAllWindows()
+
+    # Well-Summary (nur erstes Paar)
+    well_percent = 0.0 if well_total_area == 0 else (100.0 * float(well_pos_area) / float(well_total_area))
+    export_area_row(well_csv_file, f.getName(), well_total_name, well_pos_name,
+                    well_total_area, well_pos_area, well_percent)
+
