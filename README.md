@@ -1,45 +1,34 @@
-# Stardist Batch Analysis & Intensity Measurement
+# Bulk Microscopy Analysis (FIJI/ImageJ)
 
-This repository contains scripts for bulk analysis of microscopy images in FIJI/ImageJ:
+This repository contains scripts for bulk analysis of microscopy images in FIJI/ImageJ.
 
-* **nuclei_stardist_sorted.py**: A Jython script for StarDist-based nuclei segmentation macro
-* **intensity.py**: A Jython script for quantitative intensity measurements
-* **positiv\_negativ.py**: A Jython script for positive/negative classification based on measured intensities
+- **nuclei_stardist_sorted.py** – Jython macro for StarDist-based nuclei segmentation  
+- **intensity.py** – Jython script for quantitative intensity measurements  
+- **positiv_negativ.py** – Jython script for positive/negative classification based on intensities  
 
-All scripts are licensed under the MIT License.
+Licensed under the MIT License.
 
 ---
 
-## StarDist Batch Analysis
+## 1) StarDist Batch Analysis (`nuclei_stardist_sorted.py`)
 
-Automated segmentation and analysis of cell nuclei in bulk using StarDist and Bio-Formats.
+Automated segmentation and analysis of cell nuclei using StarDist and Bio-Formats.
 
 ### Features
-
-* **Automatic Parameter Configuration**: Prompts for model, probability & NMS thresholds, tiling, channel patterns, and size filters.
-* **Channel Detection**: Identifies target channel(s) (e.g. DAPI) via customizable patterns.
-* **Size Filtering**: Applies minimum/maximum label size to exclude artifacts.
-* **StarDist Segmentation**: Runs headless StarDist for label image generation.
-* **Morphology Measurement**: Measures area and circularity for each object.
-* **CSV Export**: Generates `nuclei_counts.csv` (summary) and `nuclei_morphology.csv` (per-object data).
-* **Batch Processing**: Processes all supported image files in a folder, including multi-series imports.
+- **Interactive setup**: model, probability/NMS thresholds, tiling, channel patterns, size filters
+- **Channel detection**: e.g. DAPI via patterns like `c1-`, `dapi`
+- **Size filtering**: min/max label area to remove artifacts
+- **StarDist segmentation**: headless processing
+- **Morphology metrics**: area, circularity per object
+- **CSV export**: `nuclei_counts.csv` (summary) and `nuclei_morphology.csv` (per object)
+- **Batch processing**: all supported files; multi-series aware
 
 ### Installation
+1. FIJI/ImageJ (Java 8+)
+2. Plugins: **Bio-Formats**, **StarDist**, **MorphoLibJ** & **IJPB-plugin**, **Jython** (bundled)
+3. Place scripts in your FIJI scripts folder, then restart FIJI.
 
-1. Install FIJI/ImageJ (Java 8+).
-2. Ensure the following plugins are installed:
-
-   * Bio-Formats (for ND2/LIF/TIFF import)
-   * StarDist plugin
-   * MorphoLibJ and  IJPB-plugin (for morphological operations)
-   * Jython (included with FIJI)
-3. Place the scripts in your FIJI scripts directory.
-4. Restart FIJI.
-
-### Configuration
-
-Edit the top of `nuclei_stardist_sorted.py` for hardcoded defaults:
-
+### Configuration (defaults at top of file)
 ```java
 model = "Versatile (fluorescent nuclei)"
 probability_thresh = 0.5
@@ -51,102 +40,127 @@ max_label_size = 2500
 ```
 
 ### Usage
-
-1. Open FIJI > **Plugins > Scripting > Open...**
-2. Select and run `nuclei_stardist_sorted.py.
-3. Configure parameters in the dialog prompts.
-4. Choose the folder containing your images.
-5. Wait for processing; progress appears in the console.
+1. FIJI → **Plugins > Scripting > Open...**
+2. Run `nuclei_stardist_sorted.py`
+3. Set parameters in dialogs
+4. Select image folder and run
 
 ### Output
+- Temporary annotated label windows (auto-closed)
+- `nuclei_counts.csv`
+- `nuclei_morphology.csv`
 
-* **Annotated label windows** (auto-closed)
-* `nuclei_counts.csv` (image name, nuclei count)
-* `nuclei_morphology.csv` (image name, object index, area, roundness)
+**CSV formats**
 
-### CSV Format
+`nuclei_counts.csv`
+| Column | Description |
+| --- | --- |
+| Image | Filename or series identifier |
+| Nuclei_Count | Total number of detected nuclei |
 
-| Column                      | Description                     |
-| --------------------------- | ------------------------------- |
-| Image                       | Filename or series identifier   |
-| Nuclei\_Count               | Total number of detected nuclei |
-| Object (nuclei\_morphology) | Object index (per image)        |
-| Area                        | Object area in pixels           |
-| Roundness                   | Object circularity metric       |
+`nuclei_morphology.csv`
+| Column | Description |
+| --- | --- |
+| Image | Filename or series identifier |
+| Object | Object index (per image) |
+| Area | Object area (pixels) |
+| Roundness | Circularity metric |
 
 ---
 
-## Intensity Measurement (`intensity.py`)
+## 2) Intensity Measurement (`intensity.py`)
 
-Measures integrated intensities of marker channels on a per-series and per-well basis.
+Quantifies marker-channel intensities **per series** and **aggregated per well**; optionally generates heatmaps.
 
 ### Features
-
-* **Interactive Configuration**: Prompts for marker channel patterns, thresholding (automatic or fixed), background subtraction, heatmap generation, and window closing.
-* **Background Subtraction**: Rolling-ball radius, repetitions, median filter, or defaults.
-* **Thresholding**: Automatic (Otsu, Yen, Moments) with scaling factor or fixed value.
-* **CSV Export**: `intensity_measurements.csv` (per-series) and `intensity_measurements_per_well.csv` (aggregated per-well).
-* **Optional Heatmaps**: Pseudocolor heatmaps saved as PNGs in a `heatmaps/` subfolder.
-* **Batch Processing**: Handles multi-series files and all supported formats.
+- **Interactive configuration**
+  - Marker channel patterns (e.g. `c3-`, `gfp`, `FITC`)
+  - Thresholding: **automatic** (Otsu/Yen/Moments) with scaling factor **or** **fixed value**
+  - Optional **background subtraction** (rolling-ball radius, repeats, median filter or defaults)
+  - Optional **heatmap generation** (PNG) and **auto-close** of windows
+- **Batch processing** for multi-series files and all supported formats
+- **CSV export**
+  - `intensity_measurements.csv` (per series)
+  - `intensity_measurements_per_well.csv` (per well, aggregated)
 
 ### Usage
-
-1. In FIJI, go to **Plugins > Scripting > Run...** and select `intensity.py`.
-2. Follow the prompts:
-
-   1. Marker channel pattern(s)
-   2. Automatic thresholding? If yes, choose method and scaling; otherwise, enter fixed value.
-   3. Background subtraction? If yes, choose custom or default settings.
-   4. Generate heatmaps? Yes/No.
-   5. Close images after processing? Yes/No.
-3. Select the folder with your images.
-4. Wait for processing; progress appears in the console.
+1. FIJI → **Plugins > Scripting > Run...** → select `intensity.py`
+2. Dialogs:
+   1) Marker channel pattern(s)  
+   2) Thresholding (auto method + factor **or** fixed value)  
+   3) Background subtraction (custom or default)  
+   4) Heatmaps (Yes/No)  
+   5) Close images after processing (Yes/No)
+3. Select image folder and run
 
 ### Output
+- `intensity_measurements.csv` (per series)
+- `intensity_measurements_per_well.csv` (aggregated per well)
+- `heatmaps/` (PNG heatmaps, if enabled)
 
-* `intensity_measurements.csv` (per-series: positive pixels, mean intensity, integrated intensity, nuclei count, normalized intensity)
-* `intensity_measurements_per_well.csv` (aggregated per-well metrics)
-* Optional heatmaps in `heatmaps/` if enabled.
+**CSV formats**
 
-# Positive/Negative Classification
+`intensity_measurements.csv`
+| Column | Description |
+| --- | --- |
+| Image | Filename or series identifier |
+| Series | Series index/name (if applicable) |
+| Well | Parsed well ID (e.g. A01) or filename prefix |
+| Marker | Marker/Channel identifier (e.g. `c3-`) |
+| Positive_Pixels | Pixels above threshold (count) |
+| Mean_Intensity | Mean intensity within positives |
+| Integrated_Intensity | Sum of intensities within positives |
+| Nuclei_Count | (If available) nuclei count for normalization |
+| Normalized_Intensity | Integrated_Intensity / Nuclei_Count (if provided) |
 
-Configure the parameters at the top of the script before running:
+`intensity_measurements_per_well.csv`
+| Column | Description |
+| --- | --- |
+| Well | Well ID parsed from filename/series |
+| Marker | Marker/Channel identifier |
+| Series_Count | Number of contributing series |
+| Positive_Pixels_Total | Sum across series in well |
+| Integrated_Intensity_Total | Sum across series in well |
+| Nuclei_Count_Total | Sum across series in well (if available) |
+| Normalized_Intensity | Integrated_Intensity_Total / Nuclei_Count_Total (if available) |
 
-- **NUCLEI_CHANNEL_KEY** (e.g., `"c4-"`): Substring to identify the nuclei/DAPI channel window  
-- **MARKER_CHANNEL_KEYS** (e.g., `["c3-"]`): List of substrings for marker channel windows  
-- **Size and shape filters**:  
-  - `SIZE_MIN`, `SIZE_MAX` (pixel area)  
-  - `ASPECT_RATIO_MAX`  
-- **StarDist parameters**:  
-  - `model` (e.g., "Versatile (fluorescent nuclei)")  
-  - `prob` (probability threshold)  
-  - `nms` (non-maximum suppression threshold)  
-  - `tiles_str` (e.g., "1,1")  
-- **Optional background subtraction**:  
-  - `ROLLING_RADIUS`, `ROLLING_REPEAT`, `MEDIAN_RADIUS`  
-- **Thresholding method**:  
-  - Automatic (method and factor) or fixed value (`FIXED_THRESHOLD`)  
+**Notes**
+- Heatmaps are pseudocolor projections of marker intensity per series/well.
+- Channel selection is pattern-based; prefer consistent prefixes like `c1-`, `c2-`, `c3-`.
+
+---
+
+## 3) Positive/Negative Classification (`positiv_negativ.py`)
+
+Classifies nuclei as **Positive**/**Negative** based on marker intensities.
+
+### Configure (top of script)
+- **NUCLEI_CHANNEL_KEY** (e.g. `"c4-"`)
+- **MARKER_CHANNEL_KEYS** (e.g. `["c3-"]`)
+- **Size/shape filters**: `SIZE_MIN`, `SIZE_MAX` (pixels), `ASPECT_RATIO_MAX`
+- **StarDist**: `model`, `prob`, `nms`, `tiles_str`
+- **Optional background subtraction**: `ROLLING_RADIUS`, `ROLLING_REPEAT`, `MEDIAN_RADIUS`
+- **Thresholding**: automatic (method + factor) or fixed (`FIXED_THRESHOLD`)
 
 ### Usage
+1. FIJI → **Plugins > Scripting > Run…** → `positiv_negativ.py`
+2. Select image folder
+3. Answer dialogs (background subtraction, thresholding, etc.)
+4. Processing steps:
+   - Split channels → select nuclei (DAPI) + marker windows  
+   - Segment nuclei via StarDist → filter ROIs  
+   - (Optional) background subtraction + thresholding on marker  
+   - Classify each nucleus → **Positive** (green) / **Negative** (red)  
+   - Save:
+     - `<series>_<marker>_RAW.png`
+     - `<series>_<marker>_RAW_classified.png`
+   - Append counts to `nuclei_counts.csv`
 
-1. In FIJI, go to **Plugins ▶ Scripting ▶ Run…**, then select `positiv_negativ.py`.  
-2. Choose the folder containing your image files (`.tif, .tiff, .png, .jpg, .lif, .nd2`).  
-3. Respond to the dialog prompts for background subtraction, thresholding, and other options.  
-4. The script processes each series in the folder by:  
-   1. Splitting channels and selecting nuclei (DAPI) and marker windows.  
-   2. Segmenting nuclei with StarDist and filtering ROIs by size and shape.  
-   3. (If enabled) Applying background subtraction and thresholding to the marker channel.  
-   4. Classifying each nucleus as **Positive** (green outline) or **Negative** (red outline).  
-   5. Saving two images per series and marker:  
-      - `<series>_<marker>_RAW.png`  
-      - `<series>_<marker>_RAW_classified.png`  
-   6. Appending counts to `nuclei_counts.csv` in the selected folder.  
+**CSV format (`nuclei_counts.csv`)**
+| Column | Description |
+| --- | --- |
+| Image | Series name (e.g. `Filename_Series1_c3`) |
+| Nuclei_Count | Total filtered nuclei |
+| Positive_Nuclei | Positive nuclei |
+| Negative_Nuclei | Negative nuclei |
 
-### Output: `nuclei_counts.csv`
-
-| Column               | Description                                    |
-|----------------------|------------------------------------------------|
-| **Image**            | Series name (e.g., `Filename_Series1_c3`)      |
-| **Nuclei_Count**     | Total number of filtered nuclei                |
-| **Positive_Nuclei**  | Number of nuclei classified as positive        |
-| **Negative_Nuclei**  | Number of nuclei classified as negative        |
