@@ -162,5 +162,18 @@ Classifies nuclei as **Positive**/**Negative** based on marker intensities.
 | Image | Series name (e.g. `Filename_Series1_c3`) |
 | Nuclei_Count | Total filtered nuclei |
 | Positive_Nuclei | Positive nuclei |
+
+## AOI-based Nuclei Pos/Neg (Fiji/Jython)
+
+**File:** `positivearea_Positivnegativ.py`  
+**Purpose:** Classify nuclei (StarDist ROIs) as positive/negative per marker **within** a thresholded AOI (“total” channel).
+
+**Requires:** Fiji/ImageJ, StarDist 2D, Bio-Formats  
+**Input:** Folder of multi-channel images; channels matched by unique substrings (e.g., `c4-`, `dapi`, `vimentin`).  
+**Steps:** AOI by fixed threshold (original bit depth) → StarDist nuclei → per-ROI positivity on ROI∩AOI.  
+**Key params:** nuclei channel ID; marker IDs (comma-sep.); AOI channel ID; AOI & per-marker thresholds; min AOI coverage; positivity fraction; ROI filters; StarDist model/prob/NMS/tiles.  
+**Output:** `nuclei_posneg_in_AOI.csv`, `nuclei_posneg_perROI_in_AOI.csv`, overlay PNGs in `AOI_PosNeg_PNGs/`.  
+**Usage:** Fiji → Plugins → Scripting → Script Editor (Python/Jython) → load script → Run.
+
 | Negative_Nuclei | Negative nuclei |
 
