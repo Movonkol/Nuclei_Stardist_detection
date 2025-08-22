@@ -162,7 +162,7 @@ Classifies nuclei as **Positive**/**Negative** based on marker intensities.
 | Image | Series name (e.g. `Filename_Series1_c3`) |
 | Nuclei_Count | Total filtered nuclei |
 | Positive_Nuclei | Positive nuclei |
-
+| Negative_Nuclei | Negative nuclei |
 ## AOI-based Nuclei Pos/Neg (Fiji/Jython)
 
 **File:** `positivearea_Positivnegativ.py`  
@@ -175,5 +175,5 @@ Classifies nuclei as **Positive**/**Negative** based on marker intensities.
 **Output:** `nuclei_posneg_in_AOI.csv`, `nuclei_posneg_perROI_in_AOI.csv`, overlay PNGs in `AOI_PosNeg_PNGs/`.  
 **Usage:** Fiji → Plugins → Scripting → Script Editor (Python/Jython) → load script → Run.
 
-| Negative_Nuclei | Negative nuclei |
+
 
