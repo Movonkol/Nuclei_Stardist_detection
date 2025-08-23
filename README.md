@@ -165,15 +165,56 @@ Classifies nuclei as **Positive**/**Negative** based on marker intensities.
 | Negative_Nuclei | Negative nuclei |
 ## AOI-based Nuclei Pos/Neg (Fiji/Jython)
 
-**File:** `positivearea_Positivnegativ.py`  
-**Purpose:** Classify nuclei (StarDist ROIs) as positive/negative per marker **within** a thresholded AOI (“total” channel).
+4) AOI-based Nuclei Pos/Neg (positivearea_Positivnegativ.py)
+Classifies nuclei (StarDist ROIs) as positive/negative per marker **within** a thresholded AOI (“TOTAL” channel); optional background subtraction; multi-series; exports overlays and CSV.
+_Based on:_ **Nuclei StarDist detection** (segments nuclei) and **Positive Area (%AREA)** (thresholds TOTAL to define AOI); combines both by evaluating ROI ∩ AOI.
 
-**Requires:** Fiji/ImageJ, StarDist 2D, Bio-Formats  
-**Input:** Folder of multi-channel images; channels matched by unique substrings (e.g., `c4-`, `dapi`, `vimentin`).  
-**Steps:** AOI by fixed threshold (original bit depth) → StarDist nuclei → per-ROI positivity on ROI∩AOI.  
-**Key params:** nuclei channel ID; marker IDs (comma-sep.); AOI channel ID; AOI & per-marker thresholds; min AOI coverage; positivity fraction; ROI filters; StarDist model/prob/NMS/tiles.  
-**Output:** `nuclei_posneg_in_AOI.csv`, `nuclei_posneg_perROI_in_AOI.csv`, overlay PNGs in `AOI_PosNeg_PNGs/`.  
-**Usage:** Fiji → Plugins → Scripting → Script Editor (Python/Jython) → load script → Run.
+Features
+- Interactive configuration
+- Channel patterns: nuclei/DAPI, AOI (TOTAL), marker(s) (e.g., `c4-`, `c1-`, `c3-`)
+- Fixed thresholds in original bit depth (AOI + per-marker)
+- Positivity rules: minimum AOI coverage (%) and positivity fraction (% pixels ≥ marker threshold in ROI∩AOI)
+- Optional background subtraction (rolling-ball radius, repeats, median or defaults)
+- Optional overlays (P/N labels) and contrast enhancement
+- Batch processing for multi-series files; auto-close windows
+- CSV export
+
+Usage
+- FIJI → Plugins > Scripting > Script Editor (Python/Jython) → open `positivearea_Positivnegativ.py` → Run
+- Dialogs: nuclei channel; AOI/TOTAL pattern(s); marker pattern(s); AOI + per-marker thresholds; min AOI coverage; positivity fraction; StarDist (model, prob, NMS, tiles); background subtraction; overlays/contrast
+- Select image folder and run
+
+Output
+- `nuclei_posneg_in_AOI.csv` (per image & marker summary)
+- `nuclei_posneg_perROI_in_AOI.csv` (per ROI & marker details)
+- `AOI_PosNeg_PNGs/`
+  - `...__AOI_PosNeg__DAPI.png` (overlay on nuclei/DAPI)
+  - `...__AOI_PosNeg__MARKER.png` (overlay on marker)
+
+CSV formats
+
+nuclei_posneg_in_AOI.csv
+
+Column                 Description
+Image                  Filename or series identifier
+Series                 Series index/name (if applicable)
+Marker                 Marker/channel identifier
+N_in_AOI               Number of nuclei intersecting AOI
+Positive               Count called positive
+Negative               Count called negative
+Percent_Positive       0–100 (%)
+
+nuclei_posneg_perROI_in_AOI.csv
+
+Column                 Description
+Image                  Filename or series identifier
+Series                 Series index/name
+ROI_Index              Nucleus index
+Marker                 Marker/channel identifier
+ROI_px                 ROI pixels (area)
+ROI_in_AOI_px          ROI pixels inside AOI
+PosPix_in_AOI          Pixels ≥ marker threshold in ROI∩AOI
+Is_Positive            Boolean (per rules)
 
 
 
