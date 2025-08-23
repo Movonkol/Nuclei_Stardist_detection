@@ -191,30 +191,7 @@ Output
   - `...__AOI_PosNeg__DAPI.png` (overlay on nuclei/DAPI)
   - `...__AOI_PosNeg__MARKER.png` (overlay on marker)
 
-CSV formats
 
-nuclei_posneg_in_AOI.csv
-
-Column                 Description
-Image                  Filename or series identifier
-Series                 Series index/name (if applicable)
-Marker                 Marker/channel identifier
-N_in_AOI               Number of nuclei intersecting AOI
-Positive               Count called positive
-Negative               Count called negative
-Percent_Positive       0–100 (%)
-
-nuclei_posneg_perROI_in_AOI.csv
-
-Column                 Description
-Image                  Filename or series identifier
-Series                 Series index/name
-ROI_Index              Nucleus index
-Marker                 Marker/channel identifier
-ROI_px                 ROI pixels (area)
-ROI_in_AOI_px          ROI pixels inside AOI
-PosPix_in_AOI          Pixels ≥ marker threshold in ROI∩AOI
-Is_Positive            Boolean (per rules)
 
 
 
