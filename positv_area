@@ -1,7 +1,9 @@
-# Fiji / Jython: %AREA mit manuellen Thresholds + Map-Export + deutsches CSV + eindeutiges Well-Sheet
+# Fiji / Jython: %AREA mit manuellen Thresholds + Map-Export + CSV + farbige Masken & Overlay
 from ij import IJ, WindowManager, ImagePlus
 from ij.io import DirectoryChooser, FileSaver
-from ij.process import ByteProcessor
+from ij.process import ByteProcessor, ImageProcessor
+from ij.gui import Overlay
+from java.awt import Color
 from java.io import File, FileWriter, BufferedWriter, PrintWriter
 from loci.plugins import BF
 from loci.plugins.in import ImporterOptions
@@ -37,11 +39,6 @@ SAVE_HEATMAP    = IJ.getString("Heatmap-Kopie zusätzlich speichern? (ja/nein)",
 
 # ====================== HILFSFUNKTIONEN ======================
 def export_area_row(csv_path, image_name, total_name, pos_name, total_area_px, pos_area_px, percent_pos):
-    """
-    Schreibt eine Zeile in deutschem CSV-Format:
-    - Spaltentrenner: Semikolon ;
-    - Dezimaltrennzeichen: Komma ,
-    """
     f = File(csv_path)
     first = not f.exists()
     pw = PrintWriter(BufferedWriter(FileWriter(f, True)))
@@ -55,10 +52,6 @@ def export_area_row(csv_path, image_name, total_name, pos_name, total_area_px, p
     pw.close()
 
 def preprocess_and_threshold(imp, fixed_val):
-    """
-    Duplizieren -> optional BG -> liefert (dup_img, threshold, processor).
-    Keine 8-bit-Konvertierung, keine Kontrast-Stretch – arbeitet auf Originalwerten.
-    """
     ch = imp.duplicate(); ch.show()
     if apply_bg:
         if MEDIAN_RADIUS > 0:
@@ -67,7 +60,6 @@ def preprocess_and_threshold(imp, fixed_val):
             IJ.run(ch, "Subtract Background...", "rolling=%d" % int(ROLLING_RADIUS))
     thr_eff = float(fixed_val)
     ip = ch.getProcessor()
-    # Logging der Wertebereiche hilft bei der Wahl des Thresholds
     try:
         IJ.log("Channel '%s': min=%d max=%d  (thr=%d)" % (imp.getTitle(), int(ip.getMin()), int(ip.getMax()), int(thr_eff)))
     except:
@@ -75,7 +67,6 @@ def preprocess_and_threshold(imp, fixed_val):
     return ch, thr_eff, ip
 
 def make_mask(ip, thr_eff):
-    """Erstellt eine Pixelmaske: >= thr_eff."""
     w, h = ip.getWidth(), ip.getHeight()
     idxset = set(); k = 0
     for y in range(h):
@@ -102,8 +93,85 @@ def ensure_dir(path):
     if not d.exists(): d.mkdir()
     return d
 
+def idxset_to_bp(idxset, w, h):
+    bp = ByteProcessor(w, h)
+    for k in idxset:
+        x = k % w
+        y = k // w
+        bp.set(x, y, 255)
+    return bp
+
+def mask_to_roi(bp):
+    if bp is None:
+        return None
+    imp_mask = ImagePlus("mask", bp.duplicate())
+    ip = imp_mask.getProcessor()
+    ip.setThreshold(255, 255, ImageProcessor.NO_LUT_UPDATE)
+    IJ.run(imp_mask, "Create Selection", "")
+    roi = imp_mask.getRoi()
+    imp_mask.close()
+    return roi
+
+def save_masks_and_overlay(total_bp, pos_bp, out_dir, base_name):
+    """Speichert:
+       - _AOI_red.tif (nur AOI, rot, opak)
+       - _POS_orange.tif (nur POS-in-AOI, orange, opak)
+       - _overlay_compare.tif (AOI rot halbtransparent, POS orange deckend)
+    """
+    aoi_roi = mask_to_roi(total_bp)
+    pos_roi = mask_to_roi(pos_bp)
+
+    # gemeinsame Größe
+    if total_bp is not None:
+        w, h = total_bp.getWidth(), total_bp.getHeight()
+    elif pos_bp is not None:
+        w, h = pos_bp.getWidth(), pos_bp.getHeight()
+    else:
+        return
+
+    def save_single(roi, fill_color, stroke_color, out_path):
+        if roi is None: 
+            return
+        bg = ImagePlus("bg", ByteProcessor(w, h))  # schwarz
+        r = roi.clone() if hasattr(roi, "clone") else roi
+        r.setStrokeColor(stroke_color); r.setStrokeWidth(1.5)
+        r.setFillColor(fill_color)
+        ov = Overlay(); ov.add(r)
+        bg.setOverlay(ov)
+        flat = bg.flatten()
+        FileSaver(flat).saveAsTiff(out_path)
+        flat.close(); bg.close()
+
+    out_aoi = File(out_dir, base_name + "_AOI_red.tif").getAbsolutePath()
+    out_pos = File(out_dir, base_name + "_POS_orange.tif").getAbsolutePath()
+    out_ovl = File(out_dir, base_name + "_overlay_compare.tif").getAbsolutePath()
+
+    # 1) AOI nur rot (opak)
+    save_single(aoi_roi, Color(255,0,0,255), Color(255,0,0), out_aoi)
+
+    # 2) POS-in-AOI nur orange (opak)
+    save_single(pos_roi, Color(255,165,0,255), Color(255,165,0), out_pos)
+
+    # 3) Overlay: AOI unten halbtransparent, POS oben nahezu deckend
+    bg = ImagePlus("bg", ByteProcessor(w, h))
+    ov = Overlay()
+    if aoi_roi is not None:
+        tr = aoi_roi.clone() if hasattr(aoi_roi, "clone") else aoi_roi
+        tr.setStrokeColor(Color(255,0,0)); tr.setStrokeWidth(1.5)
+        tr.setFillColor(Color(255,0,0,110))
+        ov.add(tr)
+    if pos_roi is not None:
+        pr = pos_roi.clone() if hasattr(pos_roi, "clone") else pos_roi
+        pr.setStrokeColor(Color(255,165,0)); pr.setStrokeWidth(1.5)
+        pr.setFillColor(Color(255,165,0,230))
+        ov.add(pr)
+    bg.setOverlay(ov)
+    flat = bg.flatten()
+    FileSaver(flat).saveAsTiff(out_ovl)
+    flat.close(); bg.close()
+
 def save_pos_map(total_mask, pos_ip, p_thr, w, h, out_dir, base_name):
-    """Speichert 8-bit Binärmap (255=positiv in Total); optional Heatmap."""
+    """Erstellt POS-in-AOI (8-bit 255=positiv), speichert optional Map/Heatmap, gibt (px_count, bp) zurück."""
     bp = ByteProcessor(w, h)
     k = 0
     pos_px = 0
@@ -126,7 +194,7 @@ def save_pos_map(total_mask, pos_ip, p_thr, w, h, out_dir, base_name):
         imp_heat.close()
 
     imp_map.close()
-    return pos_px
+    return pos_px, bp
 
 # ====================== IO & OUTPUT ======================
 dc = DirectoryChooser("Ordner mit Bildern wählen")
@@ -142,7 +210,6 @@ maps_dir      = ensure_dir(folder + File.separator + "maps")
 
 # ============================ HAUPTTEIL ============================
 for f in files:
-    # Well-Sheet sammelt NUR das erste gefundene Paar (Total[0] + Pos[0]) über alle Serien
     well_total_area = 0
     well_pos_area   = 0
     well_total_name = ""
@@ -168,11 +235,9 @@ for f in files:
             IJ.log("Warnung: Total- oder Positiv-Kanal fehlt in %s" % series_name)
             WindowManager.closeAllWindows(); continue
 
-        # Erstes Paar für diese Serie
         t_win = total_chs[0]
         p_win = pos_chs[0]
 
-        # Well-Sheet: echte Namen des ersten gefundenen Paares merken
         if well_total_name == "" and well_pos_name == "":
             well_total_name = t_win.getTitle()
             well_pos_name   = p_win.getTitle()
@@ -181,20 +246,27 @@ for f in files:
         total_img, t_thr, t_ip = preprocess_and_threshold(t_win, T_FIXED)
         total_mask, w, h       = make_mask(t_ip, t_thr)
         total_area_px          = len(total_mask)
+        total_bp               = idxset_to_bp(total_mask, w, h)
 
-        # POS-Messung & Map
-        pos_img, p_thr, p_ip = preprocess_and_threshold(p_win, P_FIXED)
+        # POS-in-AOI Map
+        pos_img, p_thr, p_ip   = preprocess_and_threshold(p_win, P_FIXED)
         base = "%s__Total[%s]__Pos[%s]" % (series_name, t_win.getTitle(), p_win.getTitle())
-        pos_in_total = 0 if total_area_px == 0 else save_pos_map(total_mask, p_ip, p_thr, w, h, maps_dir, base)
+        pos_in_total, pos_bp   = (0, None) if total_area_px == 0 else save_pos_map(total_mask, p_ip, p_thr, w, h, maps_dir, base)
 
-        # Per-Serie-CSV (Semikolon + Dezimal-Komma)
+        # NEU: AOI rot, POS orange, plus Overlay abspeichern
+        try:
+            save_masks_and_overlay(total_bp, pos_bp, maps_dir, base)
+        except Exception as e:
+            IJ.log("Masken/Overlay-Speicherung fehlgeschlagen in %s: %s" % (series_name, str(e)))
+
+        # Per-Serie-CSV
         percent_pos = 0.0 if total_area_px == 0 else (100.0 * float(pos_in_total) / float(total_area_px))
         export_area_row(csv_file, series_name, t_win.getTitle(), p_win.getTitle(),
                         total_area_px, pos_in_total, percent_pos)
 
-        # Well-Sheet-Summen (nur dieses Paar)
+        # Well-Sheet-Summen
         well_total_area += total_area_px
-        well_pos_area   += pos_in_total
+        well_pos_area   += (0 if pos_in_total is None else pos_in_total)
 
         # Aufräumen
         try: total_img.changes = False; total_img.close()
@@ -210,4 +282,3 @@ for f in files:
     well_percent = 0.0 if well_total_area == 0 else (100.0 * float(well_pos_area) / float(well_total_area))
     export_area_row(well_csv_file, f.getName(), well_total_name, well_pos_name,
                     well_total_area, well_pos_area, well_percent)
-
