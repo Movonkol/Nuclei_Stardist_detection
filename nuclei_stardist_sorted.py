@@ -295,3 +295,62 @@ for f in File(folder).listFiles():
 # Append grand total
 export_counts("TOTAL_ALL_IMAGES", grand_total, csv_counts)
 IJ.log("Done. QC overlays in: " + qc_dir.getAbsolutePath() if SAVE_QC_OVERLAYS else "QC overlays disabled")
+
+            pass_sigma = (SIGMA_ABOVE_BG <= 0) or (roi_mean >= bg_mean + SIGMA_ABOVE_BG * bg_sd)
+
+            if pass_abs and pass_sigma:
+                kept_rois.append(roi)
+                areas_kept.append(rt.getValue("Area", i))
+                round_kept.append(rt.getValue("Circ.", i))
+
+        # Replace ROIs with filtered set
+        rm.reset()
+        for r in kept_rois:
+            rm.addRoi(r)
+
+        # Recompute summary on kept ROIs
+        count = len(kept_rois)
+        if count > 0:
+            mean_area  = sum(areas_kept) / count
+            mean_round = sum(round_kept) / count
+        else:
+            mean_area = 0.0; mean_round = 0.0
+
+        # CSV export
+        export_counts(title, count, csv_counts)
+        export_morphology(title, mean_area, mean_round, csv_morphology)
+        print("→ %s: Count=%d" % (label.getTitle(), count))
+
+        # --- Overlay on RGB view & optional save ---
+        if rm.getCount() > 0:
+            ov = Overlay()
+            legend = TextRoi(5, 5, "QC: detected nuclei\nContours in RED")
+            legend.setStrokeColor(Color.white)
+            ov.add(legend)
+            for roi in rm.getRoisAsArray():
+                c = roi.clone()
+                c.setStrokeWidth(int(QC_STROKE_WIDTH))
+                c.setStrokeColor(QC_COLOR)
+                ov.add(c)
+            disp.setOverlay(ov); disp.updateAndDraw()
+
+            if SAVE_QC_OVERLAYS:
+                save_copy = disp.duplicate()
+                if QC_SAT_PCT > 0:
+                    IJ.run(save_copy, "Enhance Contrast", "saturated=%.3f" % float(QC_SAT_PCT))
+                out_name = safe_name("%s__QC_DAPI_Blue.png" % title)
+                out_path = qc_dir.getAbsolutePath() + File.separator + out_name
+                FileSaver(save_copy).saveAsPng(out_path)
+                try: save_copy.changes=False; save_copy.close()
+                except: pass
+                IJ.log("Saved QC overlay: " + out_path)
+
+        # Cleanup
+        try: work.changes=False; work.close()
+        except: pass
+        IJ.run("Close All")
+        grand_total += count
+
+# Append grand total
+export_counts("TOTAL_ALL_IMAGES", grand_total, csv_counts)
+IJ.log("Done. QC overlays in: " + qc_dir.getAbsolutePath() if SAVE_QC_OVERLAYS else "QC overlays disabled")
