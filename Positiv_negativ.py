@@ -1,13 +1,13 @@
-# Fiji / Jython — Nuclei Pos/Neg (StarDist-Detektion wie im "Nuclei_stardist.py")
+# Fiji / Jython — Nuclei Pos/Neg (StarDist-Detektion wie im AOI-Skript, ohne AOI)
 # - DAPI-Overlay in Blau speichern
 # - Marker-Overlay in Orange speichern
-# - Rest wie zuvor (Kanalmuster, Pre-Scaling, DAPI-Intensitätsfilter, Pos/Neg pro Marker)
+# - StarDist -> ROI Manager, Rescale, DAPI-Intensitätsfilter (σ über BG außerhalb ROIs)
 # Autor: angepasst für Moritz (2025-08-30)
 
 from ij import IJ, WindowManager, ImagePlus
 from ij.io import DirectoryChooser, FileSaver
 from ij.plugin.frame import RoiManager
-from ij.gui import Overlay, TextRoi, ShapeRoi
+from ij.gui import Overlay, TextRoi, ShapeRoi, PolygonRoi, Roi
 from ij.measure import ResultsTable, Measurements
 from ij.plugin.filter import ParticleAnalyzer
 from ij.process import ImageStatistics as IS
@@ -16,7 +16,7 @@ from java.lang import Double
 from java.awt import Color
 from loci.plugins import BF
 from loci.plugins.in import ImporterOptions
-import time, re
+import time, re, jarray
 
 # ==========================
 #        EINSTELLUNGEN
@@ -48,7 +48,7 @@ MARKER_OVERLAY_SAT = IJ.getNumber("Marker overlay saturation (%)", 0.35)
 model         = IJ.getString("StarDist model", "Versatile (fluorescent nuclei)")
 prob          = IJ.getNumber("Probability threshold", 0.5)
 nms           = IJ.getNumber("NMS threshold", 0.5)
-tiles_str     = IJ.getString("nTiles (e.g. '1,1')", "1,1")
+tiles_str     = IJ.getString("nTiles (e.g. '1,1')", "1,1")  # StarDist erwartet String
 N_TILES       = tiles_str
 
 SCALE_FACTOR  = IJ.getNumber("Pre-scaling (0.5=down, 2.0=up; 1.0=off)", 1.0)
@@ -89,26 +89,23 @@ def roi_pixel_iter(ip, roi):
     rmask = roi.getMask()
     for yy in range(b.height):
         gy = b.y + yy
-        if gy < 0 or gy >= H:
-            continue
+        if gy < 0 or gy >= H: continue
         for xx in range(b.width):
             gx = b.x + xx
-            if gx < 0 or gx >= W:
-                continue
-            if rmask is not None and rmask.get(xx, yy) == 0:
-                continue
+            if gx < 0 or gx >= W: continue
+            if rmask is not None and rmask.get(xx, yy) == 0: continue
             yield gx, gy
 
-def classify_roi(marker_ip, roi, thr, min_pos_frac):
-    total = 0
-    pospix = 0
-    for gx, gy in roi_pixel_iter(marker_ip, roi):
-        total += 1
-        if marker_ip.get(gx, gy) >= thr:
-            pospix += 1
-    if total == 0:
-        return False, 0, 0
-    return (float(pospix)/float(total) >= min_pos_frac), total, pospix
+def roi_area_pixels(ip, roi):
+    c = 0
+    for _ in roi_pixel_iter(ip, roi): c += 1
+    return c
+
+def roi_mean(ip, roi):
+    s = 0.0; n = 0
+    for gx, gy in roi_pixel_iter(ip, roi):
+        s += ip.get(gx, gy); n += 1
+    return (s / n) if n > 0 else 0.0
 
 def export_counts_row(csv_path, row, header):
     f = File(csv_path); first = not f.exists()
@@ -124,8 +121,7 @@ def safe_name(s):
     return s[:180]
 
 def add_label(ov, roi, text, color=Color.white):
-    if not ADD_PN_LABELS:
-        return
+    if not ADD_PN_LABELS: return
     b = roi.getBounds()
     cx = b.x + int(b.width/2); cy = b.y + int(b.height/2)
     tr = TextRoi(cx, cy, text)
@@ -148,6 +144,20 @@ def pick_dapi_from_list(img_list, patterns):
             best_mean = m; best = im
     return best
 
+def rescale_roi_to_original(roi, sx, sy):
+    fp = roi.getFloatPolygon()
+    if fp is None or fp.npoints == 0:
+        b = roi.getBounds()
+        nx = int(round(b.x * sx)); ny = int(round(b.y * sy))
+        nw = max(1, int(round(b.width * sx))); nh = max(1, int(round(b.height * sy)))
+        return Roi(nx, ny, nw, nh)
+    xs = jarray.array([fp.xpoints[i] * sx for i in range(fp.npoints)], 'f')
+    ys = jarray.array([fp.ypoints[i] * sy for i in range(fp.npoints)], 'f')
+    nr = PolygonRoi(xs, ys, fp.npoints, Roi.POLYGON)
+    try: nr.setStrokeWidth(roi.getStrokeWidth())
+    except: pass
+    return nr
+
 # ==========================
 #        HAUPTPROZESS
 # ==========================
@@ -156,8 +166,7 @@ if not folder:
     IJ.error("No folder selected"); raise SystemExit
 
 png_dir = File(folder + File.separator + "PosNeg_PNGs")
-if not png_dir.exists():
-    png_dir.mkdirs()
+if not png_dir.exists(): png_dir.mkdirs()
 
 csv_counts = folder + File.separator + "nuclei_posneg.csv"
 csv_detail = folder + File.separator + "nuclei_posneg_perROI.csv"
@@ -177,10 +186,8 @@ for f in files:
         series_name = "%s_Series%d" % (f.getName(), sidx+1) if len(imps) > 1 else f.getName()
         IJ.run("Close All")
         imp.setTitle(series_name); imp.show()
-        try:
-            IJ.run(imp, "Split Channels", "")
-        except:
-            pass
+        try: IJ.run(imp, "Split Channels", "")
+        except: pass
         time.sleep(0.3)
 
         windows = [WindowManager.getImage(i) for i in range(1, WindowManager.getImageCount()+1) if WindowManager.getImage(i) is not None]
@@ -201,7 +208,7 @@ for f in files:
             except: pass
             continue
 
-        # ===== StarDist =====
+        # ===== Anzeige (DAPI blau) =====
         try:
             disp = dapi.duplicate()
             try: IJ.run(disp, "Blue", "")
@@ -213,6 +220,7 @@ for f in files:
         except:
             disp = None
 
+        # ===== StarDist -> ROI Manager (wie AOI-Skript) =====
         orig_w, orig_h = dapi.getWidth(), dapi.getHeight()
         work = dapi.duplicate(); work.setTitle(series_name + "_work"); work.show()
 
@@ -229,18 +237,15 @@ for f in files:
         cmd = ("command=[de.csbdresden.stardist.StarDist2D],"
                "args=['input':'%s','modelChoice':'%s','normalizeInput':'true',"
                "'percentileBottom':'0.0','percentileTop':'100.0','probThresh':'%s','nmsThresh':'%s',"
-               "'outputType':'Label Image','nTiles':'%s','excludeBoundary':'2','verbose':'false',"
+               "'outputType':'ROI Manager','nTiles':'%s','excludeBoundary':'2','verbose':'false',"
                "'showCsbdeepProgress':'false','showProbAndDist':'false'],process=[false]") % (
                     work.getTitle(), model, prob, nms, N_TILES)
-        IJ.run("Command From Macro", cmd); time.sleep(1.0); close_stardist_dialogs()
+        IJ.run("Command From Macro", cmd); time.sleep(0.4); close_stardist_dialogs()
 
-        label = None
-        for i in range(1, WindowManager.getImageCount()+1):
-            win = WindowManager.getImage(i)
-            if win and "label image" in (win.getTitle() or "").lower():
-                label = win; break
-        if label is None:
-            IJ.log("Label image nicht gefunden für %s" % series_name)
+        rm = RoiManager.getInstance() or RoiManager()
+        rois_rm = list(rm.getRoisAsArray()) if rm else []
+        if not rois_rm:
+            IJ.log("No ROIs from StarDist in %s" % series_name)
             try: work.changes=False; work.close()
             except: pass
             for w in windows:
@@ -250,62 +255,46 @@ for f in files:
             except: pass
             continue
 
-        if abs(SCALE_FACTOR - 1.0) > 1e-6 and (label.getWidth() != orig_w or label.getHeight() != orig_h):
-            IJ.selectWindow(label.getTitle())
-            IJ.run(label, "Scale...", "x=%f y=%f width=%d height=%d interpolation=None create" %
-                   (1.0/SCALE_FACTOR, 1.0/SCALE_FACTOR, orig_w, orig_h))
-            scaled_back = WindowManager.getCurrentImage()
-            try: label.changes=False; label.close()
-            except: pass
-            label = scaled_back
+        # zurückskalieren auf Original
+        if abs(SCALE_FACTOR - 1.0) > 1e-6 and (work.getWidth()!=orig_w or work.getHeight()!=orig_h):
+            sx = float(orig_w) / float(work.getWidth())
+            sy = float(orig_h) / float(work.getHeight())
+            rois_array = [rescale_roi_to_original(r, sx, sy) for r in rois_rm]
+        else:
+            rois_array = rois_rm[:]
 
-        # ===== ROIs & Filter =====
-        rm = RoiManager.getInstance() or RoiManager(); rm.reset()
-        IJ.selectWindow(label.getTitle())
-        IJ.run(label, "Connected Components Labeling", "connectivity=4")
-        IJ.setThreshold(label, 1, Double.POSITIVE_INFINITY)
-        rt = ResultsTable()
-        pa = ParticleAnalyzer(
-            ParticleAnalyzer.ADD_TO_MANAGER,
-            Measurements.AREA | Measurements.CIRCULARITY | Measurements.RECT | Measurements.SHAPE_DESCRIPTORS,
-            rt, SIZE_MIN, SIZE_MAX
-        )
-        pa.setHideOutputImage(True)
-        pa.analyze(label)
-
-        rois_array = rm.getRoisAsArray()
-
+        # ===== DAPI-Filter (BG nur außerhalb ROIs) =====
+        dapi_ip = dapi.getProcessor()
+        # Union der ROIs (für Hintergrund)
         combined = None
         for r in rois_array:
-            sr = ShapeRoi(r)
-            combined = sr if combined is None else combined.or(sr)
-
+            try:
+                sr = ShapeRoi(r)
+                combined = sr if combined is None else combined.or(sr)
+            except:
+                pass
         if combined is not None:
             dapi.setRoi(combined)
-            IJ.run(dapi, "Make Inverse", "")
+            try: IJ.run(dapi, "Make Inverse", "")
+            except: pass
             bg_stats = dapi.getStatistics(Measurements.MEAN | Measurements.STD_DEV)
             dapi.deleteRoi()
         else:
             bg_stats = dapi.getStatistics(Measurements.MEAN | Measurements.STD_DEV)
+        bg_mean, bg_sd = float(bg_stats.mean), float(bg_stats.stdDev)
 
-        bg_mean, bg_sd = bg_stats.mean, bg_stats.stdDev
-
+        # Größe / Intensität / σ-Filter + Circularity
         kept_rois = []
         for roi in rois_array:
-            dapi.setRoi(roi)
-            rs = dapi.getStatistics(Measurements.MEAN)
-            roi_mean = rs.mean
-            dapi.deleteRoi()
-
-        # DAPI-Filter
-            pass_abs   = (MIN_MEAN_INTENSITY <= 0) or (roi_mean >= MIN_MEAN_INTENSITY)
-            pass_sigma = (SIGMA_ABOVE_BG <= 0) or (roi_mean >= bg_mean + SIGMA_ABOVE_BG * bg_sd)
-            if pass_abs and pass_sigma:
-                kept_rois.append(roi)
+            area_px = roi_area_pixels(dapi_ip, roi)
+            if area_px < SIZE_MIN or area_px > SIZE_MAX: continue
+            mval = roi_mean(dapi_ip, roi)
+            if (MIN_MEAN_INTENSITY>0 and mval<MIN_MEAN_INTENSITY): continue
+            if (SIGMA_ABOVE_BG>0 and mval<bg_mean + SIGMA_ABOVE_BG*bg_sd): continue
+            kept_rois.append(roi)
 
         rm.reset()
-        for r in kept_rois:
-            rm.addRoi(r)
+        for r in kept_rois: rm.addRoi(r)
 
         valid = list(rm.getRoisAsArray())
         if not valid:
@@ -338,10 +327,18 @@ for f in files:
             ov.add(legend)
 
             for ridx, roi in enumerate(valid):
-                is_pos, roi_px, pospix = classify_roi(m_ip, roi, thr, min_pos_frac)
-                if roi_px == 0:
-                    continue
+                is_pos, roi_px, pospix = (False, 0, 0)
+                # pos/neg pro ROI
                 total += 1
+                # Klassifikation
+                total_pix = 0; pos_pix = 0
+                for gx, gy in roi_pixel_iter(m_ip, roi):
+                    total_pix += 1
+                    if m_ip.get(gx, gy) >= thr: pos_pix += 1
+                if total_pix > 0 and float(pos_pix)/float(total_pix) >= min_pos_frac:
+                    is_pos = True
+                roi_px, pospix = total_pix, pos_pix
+
                 c = roi.clone(); c.setStrokeWidth(2)
                 if is_pos:
                     pos_count += 1
@@ -367,7 +364,6 @@ for f in files:
             # ---------- Overlays speichern ----------
             # DAPI-Overlay: BLAU
             base_dapi = dapi.duplicate()
-            # Setze Blau-LUT (robust mit Fallback) und fixiere in RGB
             try: IJ.run(base_dapi, "Blue", "")
             except:
                 try: IJ.run(base_dapi, "Blue LUT", "")
@@ -376,44 +372,30 @@ for f in files:
                 IJ.run(base_dapi, "Enhance Contrast", "saturated=%.3f" % float(DAPI_OVERLAY_SAT))
             IJ.run(base_dapi, "RGB Color", "")
             base_dapi.setOverlay(ov)
-            title_dapi = safe_name("%s__%s__PosNeg__DAPI" % (series_name, m_orig.getTitle()))
-            out_path_dapi = png_dir.getAbsolutePath() + File.separator + title_dapi + ".png"
+            out_path_dapi = png_dir.getAbsolutePath() + File.separator + safe_name("%s__%s__PosNeg__DAPI.png" % (series_name, m_orig.getTitle()))
             FileSaver(base_dapi).saveAsPng(out_path_dapi)
-            if SHOW_OVERLAYS_AT_END:
-                base_dapi.show()
+            if SHOW_OVERLAYS_AT_END: base_dapi.show()
             else:
                 try: base_dapi.changes=False; base_dapi.close()
                 except: pass
 
             # Marker-Overlay: ORANGE
             base_marker = m_imp.duplicate()
-            # Versuche Orange-LUTs, dann Fallbacks, danach RGB fixieren
             applied = False
             for lutName in ["Orange Hot", "mpl-magma", "mpl-inferno"]:
-                try:
-                    IJ.run(base_marker, lutName, "")
-                    applied = True
-                    break
-                except:
-                    pass
+                try: IJ.run(base_marker, lutName, ""); applied = True; break
+                except: pass
             if not applied:
-                # breite, warme Fallbacks
                 for lutName in ["Fire", "Red Hot"]:
-                    try:
-                        IJ.run(base_marker, lutName, "")
-                        applied = True
-                        break
-                    except:
-                        pass
+                    try: IJ.run(base_marker, lutName, ""); applied = True; break
+                    except: pass
             if ENHANCE_OVERLAY_CONTRAST:
                 IJ.run(base_marker, "Enhance Contrast", "saturated=%.3f" % float(MARKER_OVERLAY_SAT))
             IJ.run(base_marker, "RGB Color", "")
             base_marker.setOverlay(ov)
-            title_marker = safe_name("%s__%s__PosNeg__MARKER" % (series_name, m_orig.getTitle()))
-            out_path_marker = png_dir.getAbsolutePath() + File.separator + title_marker + ".png"
+            out_path_marker = png_dir.getAbsolutePath() + File.separator + safe_name("%s__%s__PosNeg__MARKER.png" % (series_name, m_orig.getTitle()))
             FileSaver(base_marker).saveAsPng(out_path_marker)
-            if SHOW_OVERLAYS_AT_END:
-                base_marker.show()
+            if SHOW_OVERLAYS_AT_END: base_marker.show()
             else:
                 try: base_marker.changes=False; base_marker.close()
                 except: pass
@@ -431,3 +413,4 @@ for f in files:
         except: pass
 
 IJ.log("Fertig. CSVs geschrieben:\n - " + csv_counts + "\n - " + csv_detail + "\nPNGs -> " + png_dir.getAbsolutePath())
+
