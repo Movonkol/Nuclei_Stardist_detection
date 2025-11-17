@@ -1,196 +1,121 @@
-# Bulk Microscopy Analysis (FIJI/ImageJ)
+# Nuclei_Stardist_detection – Fiji/Jython Guide (LIF/ND2 & OME-TIFF)
 
-This repository contains scripts for bulk analysis of microscopy images in FIJI/ImageJ.
-
-- **nuclei_stardist_sorted.py** – Jython macro for StarDist-based nuclei segmentation  
-- **intensity.py** – Jython script for quantitative intensity measurements  
-- **positiv_negativ.py** – Jython script for positive/negative classification based on intensities  
-
-Licensed under the MIT License.
+This repository provides a **Fiji (ImageJ) + Jython** workflow for **nuclei detection with StarDist** on microscopy data. It is designed to work with **RAW microscope files** (e.g., **`.lif`**, **`.nd2`**) through **Bio-Formats**, and with **TIFF / OME‑TIFF** (recommended).
 
 ---
 
-## 1) StarDist Batch Analysis (`nuclei_stardist_sorted.py`)
+## 1) What it does
 
-Automated segmentation and analysis of cell nuclei using StarDist and Bio-Formats.
+- Detects nuclei in a **DAPI** (nuclear) channel using **StarDist 2D**.
+- Generates **per-nucleus ROIs** (ROI Manager), **overlay previews**, and **CSV tables** (counts & measurements).
+- Works across **multi-series / multi-channel** datasets read by **Bio-Formats**.
 
-### Features
-- **Interactive setup**: model, probability/NMS thresholds, tiling, channel patterns, size filters
-- **Channel detection**: e.g. DAPI via patterns like `c1-`, `dapi`
-- **Size filtering**: min/max label area to remove artifacts
-- **StarDist segmentation**: headless processing
-- **Morphology metrics**: area, circularity per object
-- **CSV export**: `nuclei_counts.csv` (summary) and `nuclei_morphology.csv` (per object)
-- **Batch processing**: all supported files; multi-series aware
+---
 
-### Installation
-1. FIJI/ImageJ (Java 8+)
-2. Plugins: **Bio-Formats**, **StarDist**, **MorphoLibJ** & **IJPB-plugin**, **Jython** (bundled)
-3. Place scripts in your FIJI scripts folder, then restart FIJI.
+## 2) Requirements (verified)
 
-### Configuration (defaults at top of file)
-```java
-model = "Versatile (fluorescent nuclei)"
-probability_thresh = 0.5
-nms_thresh = 0.5
-tiles_str = "1,1"
-channel_patterns_str = "c1-,dapi"
-min_label_size = 50
-max_label_size = 2500
+Install **Fiji** and ensure these plugins/components are present:
+
+- **Bio-Formats** (bundled with Fiji) — *required* to open **`.lif` / `.nd2` / `.tif` / `.ome.tif`*.
+- **StarDist 2D** — *required* for nuclei segmentation.
+- **CSBDeep** — StarDist dependency (model execution).
+- **TensorFlow for ImageJ** — runtime backend used by CSBDeep/StarDist (CPU build is fine).
+- **IJPB-plugins** and **MorphoLibJ** — morphology/label operations used in ROI and mask postprocessing.
+- **TrackMate** — if you enable **tracking** of nuclei across frames/series (optional for pure segmentation).
+
+Enable/update via the Fiji Updater:  
+**Help → Update… → Manage update sites… →** tick **CSBDeep**, **StarDist**, **TensorFlow**, **IJPB-plugins**, **MorphoLibJ**, **TrackMate** → *Close* → *Apply changes* → **restart**.
+
+> Core ImageJ (IJ1) components used and bundled in Fiji: **ROI Manager**, **ResultsTable/Measurements**, **ParticleAnalyzer**, overlays/LUTs, etc.
+
+---
+
+## 3) Supported input formats
+
+- **Direct via Bio-Formats:** **`.lif`** (Leica), **`.nd2`** (Nikon), **`.tif/.tiff`**, **OME‑TIFF**.  
+- If a file won’t open, **update Bio‑Formats** in Fiji (*Help → Update…*).
+
+> Proprietary formats are read through Bio‑Formats’ series/reader. If metadata is unusual, exporting to **OME‑TIFF** is a robust fallback.
+
+---
+
+## 4) Quick start (Fiji + Jython)
+
+1. **Open Fiji** → *Plugins → Scripting → New → Jython*.
+2. Load the `Nuclei_Stardist_detection` script (paste code or open the `.py` file).
+3. When prompted:
+   - Select the **input folder** containing `.lif / .nd2 / .tif / .ome.tif` files.
+   - Provide **channel keywords** for the **DAPI** channel (see defaults below).
+4. Run. Results are written next to the data or to a specified output folder, as overlays and **CSV**.
+
+### Default channel keywords (edit in the script if needed)
+
+- **DAPI / nuclei channel:** `["c1-", "dapi", "blue", "nuclei"]`
+
+These keywords match if any appears in the channel/series title. For **OME‑TIFF** with correct names, selection is usually automatic.
+
+---
+
+## 5) Required imports (from the script)
+
+Typical imports used by the script (Fiji/Jython & Bio‑Formats APIs):
+
+```python
+from ij import IJ, WindowManager, ImagePlus
+from ij.io import DirectoryChooser, FileSaver
+from ij.plugin.frame import RoiManager
+from ij.gui import Overlay, PolygonRoi, Roi
+from ij.measure import ResultsTable, Measurements
+from ij.plugin.filter import ParticleAnalyzer
+from ij.process import ImageStatistics as IS, ImageConverter, ByteProcessor
+from ij.plugin import RGBStackMerge
+from java.io import File, FileWriter, BufferedWriter, PrintWriter
+from java.lang import Double
+from java.awt import Color
+from loci.plugins import BF
+from loci.plugins.in import ImporterOptions
+import time, re, jarray
 ```
 
-### Usage
-1. FIJI → **Plugins > Scripting > Open...**
-2. Run `nuclei_stardist_sorted.py`
-3. Set parameters in dialogs
-4. Select image folder and run
-
-### Output
-- Temporary annotated label windows (auto-closed)
-- `nuclei_counts.csv`
-- `nuclei_morphology.csv`
-
-**CSV formats**
-
-`nuclei_counts.csv`
-| Column | Description |
-| --- | --- |
-| Image | Filename or series identifier |
-| Nuclei_Count | Total number of detected nuclei |
-
-`nuclei_morphology.csv`
-| Column | Description |
-| --- | --- |
-| Image | Filename or series identifier |
-| Object | Object index (per image) |
-| Area | Object area (pixels) |
-| Roundness | Circularity metric |
+**StarDist invocation:** via the Fiji command `de.csbdresden.stardist.StarDist2D` (headless). Ensure **CSBDeep**, **TensorFlow**, and **StarDist** update sites are enabled.
 
 ---
 
-## 2) Intensity Measurement (`intensity.py`)
+## 6) Outputs
 
-Quantifies marker-channel intensities **per series** and **aggregated per well**; optionally generates heatmaps.
+- **ROI Manager** entries for detected nuclei.  
+- **Overlay previews** (PNG/TIFF) with masks/labels.  
+- **CSV tables** (counts/measurements) per image or batch.
 
-### Features
-- **Interactive configuration**
-  - Marker channel patterns (e.g. `c3-`, `gfp`, `FITC`)
-  - Thresholding: **automatic** (Otsu/Yen/Moments) with scaling factor **or** **fixed value**
-  - Optional **background subtraction** (rolling-ball radius, repeats, median filter or defaults)
-  - Optional **heatmap generation** (PNG) and **auto-close** of windows
-- **Batch processing** for multi-series files and all supported formats
-- **CSV export**
-  - `intensity_measurements.csv` (per series)
-  - `intensity_measurements_per_well.csv` (per well, aggregated)
-
-### Usage
-1. FIJI → **Plugins > Scripting > Run...** → select `intensity.py`
-2. Dialogs:
-   1) Marker channel pattern(s)  
-   2) Thresholding (auto method + factor **or** fixed value)  
-   3) Background subtraction (custom or default)  
-   4) Heatmaps (Yes/No)  
-   5) Close images after processing (Yes/No)
-3. Select image folder and run
-
-### Output
-- `intensity_measurements.csv` (per series)
-- `intensity_measurements_per_well.csv` (aggregated per well)
-- `heatmaps/` (PNG heatmaps, if enabled)
-
-**CSV formats**
-
-`intensity_measurements.csv`
-| Column | Description |
-| --- | --- |
-| Image | Filename or series identifier |
-| Series | Series index/name (if applicable) |
-| Well | Parsed well ID (e.g. A01) or filename prefix |
-| Marker | Marker/Channel identifier (e.g. `c3-`) |
-| Positive_Pixels | Pixels above threshold (count) |
-| Mean_Intensity | Mean intensity within positives |
-| Integrated_Intensity | Sum of intensities within positives |
-| Nuclei_Count | (If available) nuclei count for normalization |
-| Normalized_Intensity | Integrated_Intensity / Nuclei_Count (if provided) |
-
-`intensity_measurements_per_well.csv`
-| Column | Description |
-| --- | --- |
-| Well | Well ID parsed from filename/series |
-| Marker | Marker/Channel identifier |
-| Series_Count | Number of contributing series |
-| Positive_Pixels_Total | Sum across series in well |
-| Integrated_Intensity_Total | Sum across series in well |
-| Nuclei_Count_Total | Sum across series in well (if available) |
-| Normalized_Intensity | Integrated_Intensity_Total / Nuclei_Count_Total (if available) |
-
-**Notes**
-- Heatmaps are pseudocolor projections of marker intensity per series/well.
-- Channel selection is pattern-based; prefer consistent prefixes like `c1-`, `c2-`, `c3-`.
+> Pixel calibration is taken from metadata when present (best with **OME‑TIFF**). Verify scale bars/units before quantitative comparisons.
 
 ---
 
-## 3) Positive/Negative Classification (`positiv_negativ.py`)
+## 7) Tips & troubleshooting
 
-Classifies nuclei as **Positive**/**Negative** based on marker intensities.
+- **StarDist not found** → Enable **CSBDeep** + **StarDist** (and **TensorFlow** backend) and restart Fiji.  
+- **LIF/ND2 fails to open** → Update **Bio‑Formats**; if needed, export to **OME‑TIFF**.  
+- **Wrong channel picked** → Edit the **DAPI keywords** in the script to match your naming.  
+- **Over/under-segmentation** → Adjust StarDist model/threshold parameters (as exposed by the script) and check bit depth.  
+- **Empty CSV** → Confirm at least one valid series processed and output path is writable.
 
-### Configure (top of script)
-- **NUCLEI_CHANNEL_KEY** (e.g. `"c4-"`)
-- **MARKER_CHANNEL_KEYS** (e.g. `["c3-"]`)
-- **Size/shape filters**: `SIZE_MIN`, `SIZE_MAX` (pixels), `ASPECT_RATIO_MAX`
-- **StarDist**: `model`, `prob`, `nms`, `tiles_str`
-- **Optional background subtraction**: `ROLLING_RADIUS`, `ROLLING_REPEAT`, `MEDIAN_RADIUS`
-- **Thresholding**: automatic (method + factor) or fixed (`FIXED_THRESHOLD`)
+---
 
-### Usage
-1. FIJI → **Plugins > Scripting > Run…** → `positiv_negativ.py`
-2. Select image folder
-3. Answer dialogs (background subtraction, thresholding, etc.)
-4. Processing steps:
-   - Split channels → select nuclei (DAPI) + marker windows  
-   - Segment nuclei via StarDist → filter ROIs  
-   - (Optional) background subtraction + thresholding on marker  
-   - Classify each nucleus → **Positive** (green) / **Negative** (red)  
-   - Save:
-     - `<series>_<marker>_RAW.png`
-     - `<series>_<marker>_RAW_classified.png`
-   - Append counts to `nuclei_counts.csv`
+## 8) Reproducibility
 
-**CSV format (`nuclei_counts.csv`)**
-| Column | Description |
-| --- | --- |
-| Image | Series name (e.g. `Filename_Series1_c3`) |
-| Nuclei_Count | Total filtered nuclei |
-| Positive_Nuclei | Positive nuclei |
-| Negative_Nuclei | Negative nuclei |
-## AOI-based Nuclei Pos/Neg (Fiji/Jython)
+Record your environment:
+- Fiji build date
+- Bio‑Formats version
+- StarDist/CSBDeep/TensorFlow update dates
+- IJPB‑plugins / MorphoLibJ, TrackMate versions (if used)
 
-4) AOI-based Nuclei Pos/Neg (positivearea_Positivnegativ.py)
-Classifies nuclei (StarDist ROIs) as positive/negative per marker **within** a thresholded AOI (“TOTAL” channel); optional background subtraction; multi-series; exports overlays and CSV.
-_Based on:_ **Nuclei StarDist detection** (segments nuclei) and **Positive Area (%AREA)** (thresholds TOTAL to define AOI); combines both by evaluating ROI ∩ AOI.
+Pinning these alongside the script makes results easier to reproduce.
 
-Features
-- Interactive configuration
-- Channel patterns: nuclei/DAPI, AOI (TOTAL), marker(s) (e.g., `c4-`, `c1-`, `c3-`)
-- Fixed thresholds in original bit depth (AOI + per-marker)
-- Positivity rules: minimum AOI coverage (%) and positivity fraction (% pixels ≥ marker threshold in ROI∩AOI)
-- Optional background subtraction (rolling-ball radius, repeats, median or defaults)
-- Optional overlays (P/N labels) and contrast enhancement
-- Batch processing for multi-series files; auto-close windows
-- CSV export
+---
 
-Usage
-- FIJI → Plugins > Scripting > Script Editor (Python/Jython) → open `positivearea_Positivnegativ.py` → Run
-- Dialogs: nuclei channel; AOI/TOTAL pattern(s); marker pattern(s); AOI + per-marker thresholds; min AOI coverage; positivity fraction; StarDist (model, prob, NMS, tiles); background subtraction; overlays/contrast
-- Select image folder and run
+## 9) Data handling notes
 
-Output
-- `nuclei_posneg_in_AOI.csv` (per image & marker summary)
-- `nuclei_posneg_perROI_in_AOI.csv` (per ROI & marker details)
-- `AOI_PosNeg_PNGs/`
-  - `...__AOI_PosNeg__DAPI.png` (overlay on nuclei/DAPI)
-  - `...__AOI_PosNeg__MARKER.png` (overlay on marker)
-
+While **`.lif` / `.nd2`** are supported directly, consider storing final processed data as **OME‑TIFF** for long‑term portability and metadata clarity.
 
 
 
