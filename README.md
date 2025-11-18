@@ -1,4 +1,4 @@
-# Nuclei_Stardist_detection – Fiji/Jython Guide (LIF/ND2 & OME-TIFF)
+# Nuclei_Stardist_detection – Fiji/Jython Guide
 
 This repository provides a **Fiji (ImageJ) + Jython** workflow for **nuclei detection with StarDist** on microscopy data. It is designed to work with **RAW microscope files** (e.g., **`.lif`**, **`.nd2`**) through **Bio-Formats**, and with **TIFF / OME‑TIFF** (recommended).
 
