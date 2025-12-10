@@ -1,0 +1,21 @@
+# StarDist Nuclei Detection Dependencies
+
+# Core dependencies
+numpy>=1.19.0
+scipy>=1.5.0
+
+# Image processing
+scikit-image>=0.18.0
+tifffile>=2021.0.0
+Pillow>=8.0.0
+
+# StarDist and deep learning
+stardist>=0.8.0
+tensorflow>=2.6.0,<2.16.0  # StarDist requires TensorFlow
+csbdeep>=0.7.0
+
+# Visualization
+matplotlib>=3.3.0
+
+# Optional: GPU support (uncomment if you have CUDA-compatible GPU)
+# tensorflow-gpu>=2.6.0,<2.16.0
