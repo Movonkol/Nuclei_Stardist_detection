@@ -1,7 +1,7 @@
 # Fiji / Jython — Nuclei positive/negative classification (StarDist detection, no AOI)
 # - Save DAPI overlay with nucleus contours colored blue
 # - Save marker overlay with nucleus contours colored orange
-# - StarDist -> ROI Manager, rescale to original size, DAPI intensity filter (sigma above background outside ROIs)
+# - StarDist -> ROI Manager, rescale to original size, DAPI intensity filter (Sigma above background outside ROIs)
 
 from ij import IJ, WindowManager, ImagePlus
 from ij.io import DirectoryChooser, FileSaver
