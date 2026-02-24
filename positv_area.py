@@ -9,7 +9,7 @@ from loci.plugins import BF
 from loci.plugins.in import ImporterOptions
 import time, re
 
-# ====================== One-time user prompts at script start ======================
+# ====================== One-time user prompts at script start =====================
 # Channel identifiers: comma-separated substrings matched against window titles
 total_patterns_str = IJ.getString("Total/mask channel (e.g. 'c1-,vimentin')", "c1-,vimentin")
 TOTAL_CHANNEL_KEYS = [p.strip().lower() for p in total_patterns_str.split(",") if p.strip()]
