@@ -14,7 +14,7 @@ from loci.plugins.in import ImporterOptions
 import time, re
 
 # ==========================
-#        EINSTELLUNGEN
+#          Settings
 # ==========================
 SPLIT_BY    = IJ.getString("Split inside script? (none/series/time/z)", "none").lower().strip()
 SPLIT_WHICH = IJ.getString("Which half? (first/second)", "first").lower().strip()
@@ -29,11 +29,11 @@ SCALE_FACTOR         = IJ.getNumber("Pre-scaling (0.5=down, 2.0=up; 1.0=off)", 1
 SIGMA_ABOVE_BG       = IJ.getNumber("Min sigma above background (0=off)", 1.5)
 MIN_MEAN_INTENSITY   = IJ.getNumber("Min mean intensity (0=off; image units)", 0)
 
-# Größenfilter (px^2)
+# Nucleus size filter range in square pixels
 size_min             = IJ.getNumber("Min label area (px^2)", 50)
 size_max             = IJ.getNumber("Max label area (px^2)", 2500)
 
-# AOI / Area
+# AOI channel identifiers and thresholding parameters
 aoi_keys_str   = IJ.getString("AOI/Total channel identifiers (comma, e.g. 'c1-,total')", "c1-,total")
 AOI_KEYS       = [s.strip().lower() for s in aoi_keys_str.split(',') if s.strip()]
 AOI_THR        = float(IJ.getNumber("AOI fixed threshold (orig bit depth)", 1000.0))
@@ -47,14 +47,14 @@ else:
 AOI_ROI_MIN_FRAC_PCT = float(IJ.getNumber("Min. overlap of nucleus with AOI (%)", 50.0))
 AOI_ROI_MIN_FRAC     = AOI_ROI_MIN_FRAC_PCT / 100.0
 
-# Marker / Klassifikation
-marker_keys_str = IJ.getString("Marker channel identifiers (comma-separated, z.B. 'c2-,c3-')", "c2-,marker")
+# Marker channels and positive/negative classification thresholds
+marker_keys_str = IJ.getString("Marker channel identifiers (comma-separated, e.g. 'c2-,c3-')", "c2-,marker")
 MARKER_KEYS     = [s.strip().lower() for s in marker_keys_str.split(',') if s.strip()][:6]
 marker_fixed    = [IJ.getNumber("Fixed threshold for %s (orig bit depth)" % mkey, 1000.0) for mkey in MARKER_KEYS]
 POS_FRAC_PCT    = float(IJ.getNumber("Min. fraction of nucleus pixels >= marker thr (%)", 5.0))
 POS_FRAC        = POS_FRAC_PCT / 100.0
 
-# Overlays & Export
+# Overlay display and export settings
 SHOW_AT_END  = IJ.getString("Show overlays at end? (yes/no)","no").lower().strip() in ("yes","y","ja","j","true","1")
 ADD_LABELS   = IJ.getString("Add P/N labels? (yes/no)","yes").lower().strip() in ("yes","y","ja","j","true","1")
 STROKE_W     = int(IJ.getNumber("Overlay stroke width (px)", 2))
@@ -64,7 +64,7 @@ LEGEND_FONT  = Font("SansSerif", Font.PLAIN, 6)
 LABEL_FONT   = Font("SansSerif", Font.BOLD, 10)
 
 # ==========================
-#      HILFSFUNKTIONEN
+#      Helper functions
 # ==========================
 def safe_name(s): return re.sub(r'[\\/:*?"<>|]+', '_', s)[:180]
 
@@ -88,7 +88,7 @@ def pick_dapi_image(patterns, candidates):
         if any(p in title for p in patterns):
             return im
     if len(candidates)==1: return candidates[0]
-    # Fallback: hellstes Bild
+    # Fallback: use the brightest image if no window title matches the DAPI patterns
     best=None; best_mean=-1.0
     for im in candidates:
         try:
@@ -224,7 +224,7 @@ def scale_duplicate_to(imp, scale, suffix=""):
     return dup
 
 # ==========================
-#     PIPELINE (eine Serie)
+#     Pipeline: process one image series
 # ==========================
 def process_series(imp, series, image_name, out_dir,
                    AOI_KEYS, AOI_THR, APPLY_BG_AOI, AOI_ROLLING_RADIUS, AOI_ROLLING_REPEAT, AOI_MEDIAN_RADIUS,
@@ -258,7 +258,7 @@ def process_series(imp, series, image_name, out_dir,
         for w in series_wins: close_if_open(w)
         return
 
-    # Marker prüfen/auffüllen
+    # If no marker windows were found, fall back to all non-DAPI channels of matching size
     if not marker_list:
         for win in series_wins:
             if win == dapi: continue
@@ -267,7 +267,7 @@ def process_series(imp, series, image_name, out_dir,
     while len(marker_fixed) < len(marker_list):
         marker_fixed.append(marker_fixed[-1] if marker_fixed else 1000.0)
 
-    # AOI suchen
+    # Search for the AOI channel window using the configured AOI key patterns
     aoi = None
     if AOI_KEYS:
         for win in series_wins:
@@ -283,7 +283,7 @@ def process_series(imp, series, image_name, out_dir,
         close_if_open(imp)
         return
 
-    # ggf. vor SD skalieren
+    # Optionally downscale the working image before running StarDist to speed up detection
     if abs(SCALE_FACTOR - 1.0) > 1e-6:
         orig_w, orig_h = work.getWidth(), work.getHeight()
         new_w = max(1, int(round(orig_w * SCALE_FACTOR)))
@@ -296,19 +296,19 @@ def process_series(imp, series, image_name, out_dir,
                 close_if_open(work); work = scaled
         except: pass
 
-    # stabiler Titel + Fenster offen → Lookup funktioniert sicher
+    # Set a stable window title and ensure the window is visible so StarDist can find it by name
     try:
         work.setTitle(series + "_work")
     except: pass
     work.show()
     time.sleep(0.2)
 
-    # ROI Manager leeren
+    # Reset the ROI Manager before running StarDist to avoid leftover ROIs from previous series
     rm = RoiManager.getInstance() or RoiManager()
     try: rm.reset()
     except: pass
 
-    # StarDist HEADLESS wie im Referenzskript
+    # Run StarDist headless via macro command, outputting both ROIs and label image
     try:
         cmd = ("command=[de.csbdresden.stardist.StarDist2D],"
                "args=['input':'%s','modelChoice':'%s','normalizeInput':'true',"
@@ -325,7 +325,7 @@ def process_series(imp, series, image_name, out_dir,
         return
     time.sleep(0.4)
 
-    # evtl. StarDist-Fenster schließen, Label-Images schließen
+    # Close any StarDist dialog windows and label images left open after detection
     try:
         for w in WindowManager.getNonImageWindows():
             try:
@@ -347,7 +347,7 @@ def process_series(imp, series, image_name, out_dir,
         IJ.run("Collect Garbage", "")
         return
 
-    # ===== Hintergrund & Filter (in SD-Skala) =====
+    # ===== Compute background intensity outside nuclei and filter ROIs by size/intensity =====
     dapi_ip = work.getProcessor()
     bgstats = IS.getStatistics(dapi_ip, IS.MEAN | IS.STD_DEV, work.getCalibration())
     bg_mean, bg_sd = float(bgstats.mean), float(bgstats.stdDev)
@@ -378,7 +378,7 @@ def process_series(imp, series, image_name, out_dir,
         IJ.run("Collect Garbage", "")
         return
 
-    # ===== AOI-Maske (in SD-Skala) =====
+    # ===== Build binary AOI mask at StarDist working scale for overlap testing =====
     aoi_mask_ip = None
     if aoi is not None:
         aoi_proc = scale_duplicate_to(aoi, SCALE_FACTOR, "__AOIproc")
@@ -394,14 +394,14 @@ def process_series(imp, series, image_name, out_dir,
                 aoi_mask_ip = aoi_proc.getProcessor()
             except: pass
 
-    # ===== CSV-Header =====
+    # ===== Define CSV column headers for all output files =====
     COUNTS_HDR = "Image;Series;Marker;N_total;Positive;Negative;Percent_Positive;Pos_in_AOI;Neg_in_AOI;Percent_Positive_in_AOI"
     DETAIL_HDR = "Image;Series;ROI_Index;Marker;ROI_px;PosPix;Is_Positive;In_AOI"
     MORPH_PERROI_HDR = "Image;Series;ROI_Index;Marker;Circ;Is_Positive;In_AOI"
     MORPH_SUM_HDR    = "Image;Series;N_ROIs;Mean_Circ"
     MORPH_SUM_MARKER_HDR = "Image;Series;Marker;N_ROIs;Mean_Circ;N_Positive;Mean_Circ_Positive;N_In_AOI;Mean_Circ_In_AOI;N_Positive_In_AOI;Mean_Circ_Positive_In_AOI"
 
-    # Global summary (marker-unabhängig)
+    # Global morphology summary across all nuclei, independent of marker classification
     n_circ = 0; sum_circ_all = 0.0
     for _, m in kept:
         if not Double.isNaN(m['Circ']):
@@ -409,13 +409,13 @@ def process_series(imp, series, image_name, out_dir,
     mean_circ = (sum_circ_all / n_circ) if n_circ>0 else 0.0
     export_csv(csv_morph_summary, "%s;%s;%d;%.6f" % (image_name, series, n_circ, mean_circ), MORPH_SUM_HDR)
 
-    # ===== Marker-Loop =====
+    # ===== Iterate over each marker channel for positive/negative classification =====
     if not marker_list:
         IJ.log("No marker channels in %s" % series)
 
     for midx, mwin in enumerate(marker_list[:len(marker_fixed)]):
         thr = float(marker_fixed[midx])
-        # Marker in SD-Skala duplizieren & anpassen
+        # Duplicate and rescale the marker image to match the StarDist working resolution
         m_imp = scale_duplicate_to(mwin, SCALE_FACTOR, "__MARKER_%d_GRAY" % (midx+1)); ensure_gray8(m_imp)
         if m_imp is None:
             IJ.log("Marker duplicate failed in %s" % series)
@@ -463,7 +463,7 @@ def process_series(imp, series, image_name, out_dir,
                     n_in += 1; sum_in += cval
                     if is_pos: n_posin += 1; sum_posin += cval
 
-            # Overlay nur für Kerne in AOI
+            # Draw nucleus outline on the overlay only if the nucleus overlaps the AOI
             if in_aoi:
                 c = roi.clone(); c.setStrokeWidth(STROKE_W)
                 if is_pos:
@@ -472,7 +472,7 @@ def process_series(imp, series, image_name, out_dir,
                     c.setStrokeColor(COLOR_NEG); add_label(ov, roi, "N", COLOR_NEG)
                 ov.add(c)
 
-            # CSVs
+            # Write per-nucleus rows to the detail and morphology CSVs
             export_csv(csv_detail, "%s;%s;%d;%s;%d;%d;%s;%s" % (
                 image_name, series, ridx, (mwin.getTitle() or "marker"), total, pospix,
                 ("TRUE" if is_pos else "FALSE"), ("TRUE" if in_aoi else "FALSE")
@@ -491,7 +491,7 @@ def process_series(imp, series, image_name, out_dir,
             pos_cnt, neg_cnt, pct_total, pos_aoi, neg_aoi, pct_aoi
         ), COUNTS_HDR)
 
-        # Summary je Marker
+        # Write per-marker morphology summary row with circularity statistics
         mean_all = (sum_all_m/n_all_m) if n_all_m>0 else 0.0
         mean_pos = (sum_pos/n_pos) if n_pos>0 else 0.0
         mean_in  = (sum_in/n_in) if n_in>0 else 0.0
@@ -538,14 +538,14 @@ def process_series(imp, series, image_name, out_dir,
             close_if_open(m_imp)
             IJ.run("Collect Garbage", "")
 
-    # AOI-Prozessfenster schließen
+    # Close the AOI processing window that was opened during mask generation
     try:
         for imx in list_open_images():
             if imx and ("__AOIproc" in (imx.getTitle() or "")):
                 close_if_open(imx)
     except: pass
 
-    # Cleanup Serie
+    # Release all resources for this series and run garbage collection
     close_if_open(work)
     if not SHOW_AT_END:
         for w in series_wins: close_if_open(w)
@@ -553,7 +553,7 @@ def process_series(imp, series, image_name, out_dir,
     IJ.run("Collect Garbage", "")
 
 # ==========================
-#        HAUPTPROZESS
+#      Main process: iterate over all input files
 # ==========================
 folder = DirectoryChooser("Select folder with images").getDirectory()
 if not folder:
@@ -594,7 +594,7 @@ for f in files:
         IJ.log("No series: %s" % image_name)
         continue
 
-    # Seriennamen (Fallback: Titel)
+    # Derive unique series names, falling back to the image window title if unavailable
     series_names = []
     seen = set()
     for i, imp in enumerate(imps):
@@ -606,7 +606,7 @@ for f in files:
         seen.add(nm.lower())
         series_names.append(nm)
 
-    # Serien-Split
+    # Optionally process only the first or second half of the series list
     if SPLIT_BY == "series" and len(imps) > 1:
         total = len(imps)
         cut   = total // 2
@@ -620,7 +620,7 @@ for f in files:
 
         marker_list = []
 
-        # time / z split
+        # Split stack along time or z axis and process the selected sub-stack
         if SPLIT_BY in ("time","z"):
             nT = max(1, imp.getNFrames())
             nZ = max(1, imp.getNSlices())
@@ -651,7 +651,7 @@ for f in files:
                                STROKE_W, COLOR_POS, COLOR_NEG, SHOW_AT_END)
                 continue
 
-        # normal
+        # No splitting: process the full series directly
         process_series(imp, series, image_name, out_dir,
                        AOI_KEYS, AOI_THR, APPLY_BG_AOI, AOI_ROLLING_RADIUS, AOI_ROLLING_REPEAT, AOI_MEDIAN_RADIUS,
                        size_min, size_max, MIN_MEAN_INTENSITY, SIGMA_ABOVE_BG,
@@ -660,8 +660,8 @@ for f in files:
 
     IJ.run("Collect Garbage", "")
 
-# Abschluss-Log
-IJ.log("Fertig. CSVs:")
+# Log final completion message with paths to all output files
+IJ.log("Done. CSVs:")
 IJ.log(" - " + csv_counts)
 IJ.log(" - " + csv_detail)
 IJ.log(" - " + csv_morph_perroi)

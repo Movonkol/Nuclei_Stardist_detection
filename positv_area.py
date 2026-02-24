@@ -1,4 +1,4 @@
-# Fiji / Jython: %AREA mit optionalem Auto-Threshold + Split (series/time/z, first/second) + CSV + farbige Masken & Overlay
+# Fiji / Jython: Measure percentage area with optional auto-threshold, stack splitting (series/time/z, first/second half), CSV output, and colored mask/overlay export
 from ij import IJ, WindowManager, ImagePlus
 from ij.io import DirectoryChooser, FileSaver
 from ij.process import ByteProcessor, ImageProcessor
@@ -9,48 +9,48 @@ from loci.plugins import BF
 from loci.plugins.in import ImporterOptions
 import time, re
 
-# ====================== EINMALIGE ABFRAGEN ======================
-# Kanäle
-total_patterns_str = IJ.getString("Total/Masken-Kanal (z.B. 'c1-,vimentin')", "c1-,vimentin")
+# ====================== One-time user prompts at script start ======================
+# Channel identifiers: comma-separated substrings matched against window titles
+total_patterns_str = IJ.getString("Total/mask channel (e.g. 'c1-,vimentin')", "c1-,vimentin")
 TOTAL_CHANNEL_KEYS = [p.strip().lower() for p in total_patterns_str.split(",") if p.strip()]
-pos_patterns_str   = IJ.getString("Positiv-Marker-Kanal (z.B. 'c2-,asma')", "c2-,asma")
+pos_patterns_str   = IJ.getString("Positive marker channel (e.g. 'c2-,asma')", "c2-,asma")
 POS_CHANNEL_KEYS   = [p.strip().lower() for p in pos_patterns_str.split(",") if p.strip()]
 
-# Split-Optionen (wie in deinen anderen Skripten)
+# Options to split the stack by series, time, or z dimension
 SPLIT_BY    = IJ.getString("Split? (none/series/time/z)", "none").lower().strip()
 SPLIT_WHICH = IJ.getString("Which half? (first/second)", "first").lower().strip()
 
-# Auto-Threshold?
-AUTO_THRESHOLD = IJ.getString("Auto-Threshold verwenden? (ja/nein)", "ja").lower().strip() in ("ja","j","yes","y","true","t","1")
+# Choose between automatic (method-based) or fixed threshold values
+AUTO_THRESHOLD = IJ.getString("Use auto-threshold? (yes/no)", "yes").lower().strip() in ("ja","j","yes","y","true","t","1")
 if AUTO_THRESHOLD:
-    T_METHOD = IJ.getString("TOTAL: Auto-Threshold-Methode (z.B. 'Otsu dark')", "Otsu dark")
-    T_FACTOR = IJ.getNumber("TOTAL: Threshold-Faktor (>1=strenger)", 1.0)
-    P_METHOD = IJ.getString("POS: Auto-Threshold-Methode (z.B. 'Otsu dark')", "Otsu dark")
-    P_FACTOR = IJ.getNumber("POS: Threshold-Faktor (>1=strenger)", 1.0)
-    T_FIXED, P_FIXED = 1000.0, 1000.0   # Fallbacks (keine Prompts)
+    T_METHOD = IJ.getString("TOTAL: auto-threshold method (e.g. 'Otsu dark')", "Otsu dark")
+    T_FACTOR = IJ.getNumber("TOTAL: threshold factor (>1 = stricter)", 1.0)
+    P_METHOD = IJ.getString("POS: auto-threshold method (e.g. 'Otsu dark')", "Otsu dark")
+    P_FACTOR = IJ.getNumber("POS: threshold factor (>1 = stricter)", 1.0)
+    T_FIXED, P_FIXED = 1000.0, 1000.0   # Fallback values (not prompted when auto mode is active)
 else:
-    T_FIXED = IJ.getNumber("TOTAL: fester Threshold (z.B. 16-bit: 0..65535)", 1000.0)
-    P_FIXED = IJ.getNumber("POS: fester Threshold (z.B. 16-bit: 0..65535)",   1000.0)
+    T_FIXED = IJ.getNumber("TOTAL: fixed threshold (e.g. 16-bit: 0..65535)", 1000.0)
+    P_FIXED = IJ.getNumber("POS: fixed threshold (e.g. 16-bit: 0..65535)",   1000.0)
     T_METHOD = P_METHOD = ""; T_FACTOR = P_FACTOR = 1.0
 
-# Hintergrundkorrektur
-apply_bg = IJ.getString("Hintergrund subtrahieren? (ja/nein)", "ja").lower().strip() in ("ja","j","yes","y","true","t","1")
+# Background correction settings: rolling ball subtraction with optional median pre-filter
+apply_bg = IJ.getString("Subtract background? (yes/no)", "yes").lower().strip() in ("ja","j","yes","y","true","t","1")
 if apply_bg:
-    use_custom_bg = IJ.getString("Eigene BG-Parameter? (ja/nein)", "ja").lower().strip() in ("ja","j","yes","y","true","t","1")
+    use_custom_bg = IJ.getString("Use custom background parameters? (yes/no)", "yes").lower().strip() in ("ja","j","yes","y","true","t","1")
     if use_custom_bg:
         ROLLING_RADIUS = IJ.getNumber("Rolling Ball Radius", 50)
-        ROLLING_REPEAT = int(IJ.getNumber("BG-Wiederholungen (Ganzzahl)", 1))
-        MEDIAN_RADIUS  = IJ.getNumber("Median-Filter Radius (0 = keiner)", 0)
+        ROLLING_REPEAT = int(IJ.getNumber("BG repetitions (integer)", 1))
+        MEDIAN_RADIUS  = IJ.getNumber("Median filter radius (0 = none)", 0)
     else:
         ROLLING_RADIUS, ROLLING_REPEAT, MEDIAN_RADIUS = 50, 1, 0
 else:
     ROLLING_RADIUS, ROLLING_REPEAT, MEDIAN_RADIUS = 0, 0, 0
 
-# Map-Export
+# Controls whether binary positivity maps and heatmap copies are saved
 SAVE_BINARY_MAP = True
-SAVE_HEATMAP    = IJ.getString("Heatmap-Kopie zusätzlich speichern? (ja/nein)", "nein").lower().strip() in ("ja","j","yes","y","true","t","1")
+SAVE_HEATMAP    = IJ.getString("Also save heatmap copy? (yes/no)", "no").lower().strip() in ("ja","j","yes","y","true","t","1")
 
-# ====================== HILFSFUNKTIONEN ======================
+# ====================== Helper functions ======================
 def export_area_row(csv_path, image_name, total_name, pos_name, total_area_px, pos_area_px, percent_pos):
     f = File(csv_path); first = not f.exists()
     pw = PrintWriter(BufferedWriter(FileWriter(f, True)))
@@ -166,11 +166,11 @@ def save_pos_map(total_mask, pos_ip, p_thr, w, h, out_dir, base_name):
     imp_map.close()
     return pos_px, bp
 
-# ---- Split-Helfer (series/time/z) ----
+# ---- Helper to split a stack into first or second half along time or z axis ----
 def duplicate_half(imp, by, which):
     by = (by or "none").lower().strip()
     which = (which or "first").lower().strip()
-    if by not in ("time","z"):  # für series handled außerhalb
+    if by not in ("time","z"):  # series splitting is handled outside this function
         return imp
     nC = max(1, imp.getNChannels()); nZ = max(1, imp.getNSlices()); nT = max(1, imp.getNFrames())
     if by == "time" and nT > 1:
@@ -187,18 +187,18 @@ def duplicate_half(imp, by, which):
     part = WindowManager.getCurrentImage()
     return part if part is not None else imp
 
-# ====================== IO & OUTPUT ======================
-dc = DirectoryChooser("Ordner mit Bildern wählen")
+# ====================== File I/O and output path setup ======================
+dc = DirectoryChooser("Select folder with images")
 folder = dc.getDirectory()
 if not folder:
-    IJ.error("Kein Ordner gewählt"); raise SystemExit
+    IJ.error("No folder selected"); raise SystemExit
 
 files = sorted([f for f in File(folder).listFiles() if is_image(f)], key=lambda f: f.getName().lower())
 csv_file      = folder + File.separator + "percent_area_measurements.csv"
 well_csv_file = folder + File.separator + "percent_area_measurements_per_well.csv"
 maps_dir      = ensure_dir(folder + File.separator + "maps")
 
-# ============================ HAUPTTEIL ============================
+# ============================ Main processing ============================
 for f in files:
     well_total_area = 0; well_pos_area = 0
     well_total_name = ""; well_pos_name = ""
@@ -207,7 +207,7 @@ for f in files:
     imps = BF.openImagePlus(opts)
     if not imps: continue
 
-    # --- SERIES-SPLIT: erste/zweite Hälfte der Serien auswählen ---
+    # --- Series split: select only the first or second half of all series ---
     series_indices = range(len(imps))
     if SPLIT_BY == "series" and len(imps) > 1:
         total = len(imps); cut = total // 2
@@ -218,7 +218,7 @@ for f in files:
         series_name = "%s_Series%d" % (f.getName(), sidx + 1) if len(imps) > 1 else f.getName()
         imp.setTitle(series_name); imp.show()
 
-        # --- TIME/Z-SPLIT: (Teil-)Stack duplizieren und analysieren ---
+        # --- Time/Z split: duplicate the selected sub-stack and analyse it ---
         part = duplicate_half(imp, SPLIT_BY, SPLIT_WHICH)
         if part != imp:
             try: imp.changes = False; imp.close()
@@ -226,43 +226,43 @@ for f in files:
             imp = part
             series_name = imp.getTitle()
 
-        # --- Kanäle splitten & finden ---
+        # --- Split channels and identify total/positive channel windows ---
         IJ.run(imp, "Split Channels", ""); time.sleep(0.3)
         windows = [WindowManager.getImage(i) for i in range(1, WindowManager.getImageCount() + 1) if WindowManager.getImage(i) is not None]
         total_chs = find_channels_by_keys(windows, TOTAL_CHANNEL_KEYS)
         pos_chs   = find_channels_by_keys(windows,   POS_CHANNEL_KEYS)
         if not total_chs or not pos_chs:
-            IJ.log("Warnung: Total- oder Positiv-Kanal fehlt in %s" % series_name)
+            IJ.log("Warning: total or positive channel missing in %s" % series_name)
             WindowManager.closeAllWindows(); continue
         t_win, p_win = total_chs[0], pos_chs[0]
 
         if well_total_name == "" and well_pos_name == "":
             well_total_name = t_win.getTitle(); well_pos_name = p_win.getTitle()
 
-        # --- TOTAL (AOI) ---
+        # --- Threshold and measure the total (AOI) channel ---
         total_img, t_thr, t_ip = preprocess_and_threshold(t_win, T_FIXED, use_auto=AUTO_THRESHOLD, method=T_METHOD, factor=T_FACTOR)
         total_mask, w, h       = make_mask(t_ip, t_thr)
         total_area_px          = len(total_mask)
         total_bp               = idxset_to_bp(total_mask, w, h)
 
-        # --- POS ---
+        # --- Threshold the positive marker channel and count pixels inside the total mask ---
         pos_img, p_thr, p_ip   = preprocess_and_threshold(p_win, P_FIXED, use_auto=AUTO_THRESHOLD, method=P_METHOD, factor=P_FACTOR)
         base = "%s__Total[%s]__Pos[%s]" % (series_name, t_win.getTitle(), p_win.getTitle())
         pos_in_total, pos_bp   = (0, None) if total_area_px == 0 else save_pos_map(total_mask, p_ip, p_thr, w, h, maps_dir, base)
 
-        # --- Overlay speichern ---
+        # --- Save colored mask images and a combined comparison overlay ---
         try: save_masks_and_overlay(total_bp, pos_bp, maps_dir, base)
-        except Exception as e: IJ.log("Masken/Overlay-Speicherung fehlgeschlagen in %s: %s" % (series_name, str(e)))
+        except Exception as e: IJ.log("Mask/overlay save failed in %s: %s" % (series_name, str(e)))
 
-        # --- CSV pro Serie ---
+        # --- Write per-series row to the measurements CSV ---
         percent_pos = 0.0 if total_area_px == 0 else (100.0 * float(pos_in_total) / float(total_area_px))
         export_area_row(csv_file, series_name, t_win.getTitle(), p_win.getTitle(), total_area_px, pos_in_total, percent_pos)
 
-        # --- Well-Summen ---
+        # --- Accumulate per-well totals across all series of this file ---
         well_total_area += total_area_px
         well_pos_area   += (0 if pos_in_total is None else pos_in_total)
 
-        # --- Cleanup ---
+        # --- Close temporary images for this series ---
         try: total_img.changes = False; total_img.close()
         except: pass
         try: pos_img.changes = False; pos_img.close()
@@ -274,7 +274,7 @@ for f in files:
         except: pass
         WindowManager.closeAllWindows()
 
-    # --- Well-Summary ---
+    # --- Write per-well summary row aggregating all series of this file ---
     well_percent = 0.0 if well_total_area == 0 else (100.0 * float(well_pos_area) / float(well_total_area))
     export_area_row(well_csv_file, f.getName(), well_total_name, well_pos_name, well_total_area, well_pos_area, well_percent)
 

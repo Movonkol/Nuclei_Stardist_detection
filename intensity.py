@@ -9,29 +9,29 @@ import time
 #                             SETTINGS
 # =====================================================================
 
-# Marker-Kanalmuster
+# Comma-separated patterns used to identify the marker channel by window title
 marker_patterns_str = IJ.getString(
-    "Marker channel pattern (z.B. 'c3-,marker')",
+    "Marker channel pattern (e.g. 'c3-,marker')",
     "c3-,marker"
 )
 MARKER_CHANNEL_KEYS = [p.strip().lower() for p in marker_patterns_str.split(",") if p.strip()]
 
 # ---------------------------------------------------------------------
-# Threshold-Konfiguration
+# Threshold configuration: choose between automatic (Otsu etc.) or fixed value
 # ---------------------------------------------------------------------
 _use_auto_th_str = IJ.getString(
-    "Automatisches Thresholding? (yes/no)",
+    "Use automatic thresholding? (yes/no)",
     "yes"
 )
 USE_AUTO_THRESHOLD = _use_auto_th_str.lower().strip() in ("yes","y","true","t","1")
 
 if USE_AUTO_THRESHOLD:
     THRESHOLD_METHOD = IJ.getString(
-        "Threshold-Methode (Otsu, Yen, Moments,...)",
+        "Threshold method (Otsu, Yen, Moments, ...)",
         "Otsu dark"
     )
     THRESHOLD_FACTOR = IJ.getNumber(
-        "Threshold-Faktor (>1 = strenger)",
+        "Threshold factor (>1 = stricter)",
         1.0
     )
     USE_FIXED_THRESHOLD = False
@@ -41,21 +41,21 @@ else:
     THRESHOLD_FACTOR = 1.0
     USE_FIXED_THRESHOLD = True
     FIXED_THRESHOLD = IJ.getNumber(
-        "Fester Threshold-Wert", 50.0
+        "Fixed threshold value", 50.0
     )
 
 # ---------------------------------------------------------------------
-# Hintergrund-Subtraktion
+# Background subtraction: rolling ball radius and optional median pre-filter
 # ---------------------------------------------------------------------
 _apply_bg_str = IJ.getString(
-    "Hintergrund subtrahieren? (yes/no)",
+    "Subtract background? (yes/no)",
     "yes"
 )
 APPLY_BACKGROUND = _apply_bg_str.lower().strip() in ("yes","y","true","t","1")
 AUTO_BACKGROUND = False
 if APPLY_BACKGROUND:
     _auto_bg_str = IJ.getString(
-        "Automatische Parameter? (yes/no)",
+        "Use automatic parameters? (yes/no)",
         "yes"
     )
     AUTO_BACKGROUND = _auto_bg_str.lower().strip() in ("yes","y","true","t","1")
@@ -64,10 +64,10 @@ if APPLY_BACKGROUND:
             "Rolling ball radius", 50
         )
         ROLLING_REPEAT = int(IJ.getNumber(
-            "Anzahl Wiederholungen (int)", 1
+            "Number of repetitions (int)", 1
         ))
         MEDIAN_RADIUS = IJ.getNumber(
-            "Median-Filter Radius (0 = none)", 0
+            "Median filter radius (0 = none)", 0
         )
     else:
         ROLLING_RADIUS = 50
@@ -79,7 +79,7 @@ else:
     MEDIAN_RADIUS = 0
 
 # =====================================================================
-#            EXPORT-FUNKTION
+#            Export function: append one measurement row to the CSV
 # =====================================================================
 def export_intensity(
     image_name, channel_name, pos_pixels, mean_int,
@@ -97,16 +97,16 @@ def export_intensity(
     pw.close()
 
 # =====================================================================
-#      AUSWAHL ORDNER UND EINLESEN DER KERN-ZÄHLUNGEN (REIHENFOLGE)
+#      Select input folder and read nucleus counts CSV for normalization
 # =====================================================================
-dc = DirectoryChooser("Ordner mit Bildern wählen")
+dc = DirectoryChooser("Select folder with images")
 folder = dc.getDirectory()
 if not folder:
-    IJ.error("Kein Ordner ausgewählt")
+    IJ.error("No folder selected")
     raise SystemExit
 
 counts_filename = IJ.getString(
-    "Name der Zähl-CSV (leer = keine Normalisierung)",
+    "Name of nucleus-count CSV (leave empty to skip normalization)",
     "nuclei_counts.csv"
 )
 counts_list = []
@@ -125,12 +125,12 @@ if counts_filename:
                     except:
                         counts_list.append(0)
         else:
-            IJ.log("Hinweis: Datei '%s' nicht gefunden – keine Normalisierung." % counts_filename)
+            IJ.log("Note: file '%s' not found - normalization skipped." % counts_filename)
     except Exception as err:
-        IJ.log("Fehler beim Lesen der Zähl-CSV: %s" % str(err))
+        IJ.log("Error reading nucleus-count CSV: %s" % str(err))
 
 use_heatmap = IJ.getString(
-    "Heatmaps speichern? (yes/no)",
+    "Save heatmaps? (yes/no)",
     "no"
 ).lower().strip() in ("yes","y","true","t","1","ja","j")
 heatmap_dir = None
@@ -141,7 +141,7 @@ if use_heatmap:
 csv_file = folder + File.separator + "intensity_measurements.csv"
 well_csv_file = folder + File.separator + "intensity_measurements_per_well.csv"
 
-# Dateien sortiert einlesen
+# Load all supported image files from the folder in alphabetical order
 files = sorted(
     [f for f in File(folder).listFiles()
      if f.isFile() and f.getName().lower().endswith((".tif", ".tiff", ".png", ".jpg", ".lif", ".nd2"))],
@@ -149,10 +149,10 @@ files = sorted(
 )
 
 # =====================================================================
-#          HAUPTSCHLEIFE: INTENSITÄTS-ANALYSE
+#          Main loop: measure marker intensity for each image file
 # =====================================================================
 for idx, f in enumerate(files):
-    # Zähle den i-ten Eintrag
+    # Retrieve the pre-loaded nucleus count for this file, if available
     file_nuclei_count = counts_list[idx] if idx < len(counts_list) else 0
 
     total_positive = 0
@@ -166,14 +166,14 @@ for idx, f in enumerate(files):
     imps = BF.openImagePlus(opts)
 
     for sidx, imp in enumerate(imps):
-        series_name_raw = "%s_Serie%d" % (f.getName(), sidx+1)
+        series_name_raw = "%s_Series%d" % (f.getName(), sidx+1)
         imp.setTitle(series_name_raw)
         imp.show()
 
         IJ.run(imp, "Split Channels", "")
         time.sleep(0.5)
 
-        # Marker-Kanäle finden
+        # Find open channel windows whose titles match the configured marker patterns
         marker_channels = []
         for i in range(1, WindowManager.getImageCount()+1):
             win = WindowManager.getImage(i)
@@ -205,7 +205,7 @@ for idx, f in enumerate(files):
             if use_heatmap and heatmap_dir is not None:
                 base = ("%s__%s" % (series_name_raw, marker.getTitle())).replace(" ", "_")
                 try:
-                    # LUT Heatmap
+                    # Save false-color heatmap using the Fire LUT for visual inspection
                     hm = chan.duplicate()
                     IJ.run(hm, "8-bit", "")
                     IJ.run(hm, "Enhance Contrast", "saturated=0.35")
@@ -221,7 +221,7 @@ for idx, f in enumerate(files):
                     FileSaver(mask).saveAsPng(heatmap_dir.getAbsolutePath() + File.separator + base + "_mask.png")
                     mask.changes = False; mask.close()
                 except Exception as _err:
-                    IJ.log("Warnung: Heatmap konnte nicht gespeichert werden: %s" % str(_err))
+                    IJ.log("Warning: could not save heatmap: %s" % str(_err))
             # --- End heatmap save ---
 
 
@@ -256,7 +256,7 @@ for idx, f in enumerate(files):
 
         WindowManager.closeAllWindows()
 
-    # Zusammenfassung pro Well
+    # Aggregate all series into a per-well summary row
     well_mean = (total_integrated/total_positive) if total_positive>0 else 0.0
     well_norm = (total_integrated/total_nuclei) if total_nuclei>0 else 0.0
     export_intensity(

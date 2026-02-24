@@ -1,7 +1,7 @@
-# Fiji/Jython — StarDist Nuclei within AOI (no marker)
-# - COMBO: AOI rot (R) + DAPI blau (B) via RGBStackMerge, Nuklei-Konturen obenauf
-# - DAPI-only Overlay zusätzlich
-# - Robustheit: sichere LUT-Aufrufe, Index-Checks, None-Guards, GC
+# Fiji/Jython — StarDist nuclei detection within an AOI region (no marker channel)
+# - COMBO overlay: AOI in red, DAPI in blue (merged via RGBStackMerge), nucleus outlines drawn on top
+# - Additional DAPI-only overlay showing only nuclei that fall inside the AOI
+# - Robust handling: safe LUT calls, index checks, None guards, garbage collection
 # - CSV (per-ROI): Area_px, Circ, In_AOI
 # - CSV (Summary): N_ROIs, N_In_AOI, Mean_Area_px, Mean_Circ, Mean_Circ_In_AOI
 
@@ -20,7 +20,7 @@ from loci.plugins import BF
 from loci.plugins.in import ImporterOptions
 import time, re, jarray
 
-# -------- Einstellungen --------
+# -------- Settings --------
 SPLIT_BY    = IJ.getString("Split inside script? (none/series/time/z)", "none").lower().strip()
 SPLIT_WHICH = IJ.getString("Which half? (first/second)", "first").lower().strip()
 
@@ -130,7 +130,7 @@ def close_if_open(imp):
         if imp is not None: imp.changes=False; imp.close()
     except: pass
 
-# Circularity robust über ParticleAnalyzer auf ROI-Maske
+# Compute circularity reliably using ParticleAnalyzer on a binary mask of the ROI
 def circ_from_roi(roi):
     try:
         mask = roi.getMask()
@@ -150,7 +150,7 @@ def circ_from_roi(roi):
         pass
     return Double.NaN
 
-# ROI aus work-Skalierung zurück auf Originalgröße
+# Rescale ROI coordinates from the downscaled working image back to original image size
 def rescale_roi_to_original(roi, sx, sy):
     fp = roi.getFloatPolygon()
     if fp is None or fp.npoints==0:
@@ -165,7 +165,7 @@ def rescale_roi_to_original(roi, sx, sy):
     except: pass
     return nr
 
-# -------- Serie verarbeiten --------
+# -------- Process a single image series --------
 def process_series(imp, series, folder):
     if imp is None:
         IJ.log("Skip %s (imp=None)" % series); return
@@ -184,7 +184,7 @@ def process_series(imp, series, folder):
         IJ.log("No DAPI in %s" % series)
         for w in series_wins: close_if_open(w); close_if_open(imp); return
 
-    # AOI (optional)
+    # Find the AOI channel window if AOI identifiers were configured
     aoi=None
     if AOI_KEYS:
         for win in series_wins:
@@ -193,7 +193,7 @@ def process_series(imp, series, folder):
 
     dapi_disp=dapi.duplicate(); ensure_gray8(dapi_disp); dapi_disp.setTitle(series+"_DAPI_GRAY"); dapi_disp.show()
 
-    # --- StarDist → ROI-Manager ---
+    # --- Run StarDist and collect detected nuclei into the ROI Manager ---
     orig_w, orig_h = dapi.getWidth(), dapi.getHeight()
     work = dapi.duplicate(); work.setTitle(series + "_work"); work.show()
     rm = RoiManager.getInstance() or RoiManager(); rm.reset()
@@ -224,7 +224,7 @@ def process_series(imp, series, folder):
         close_if_open(work); close_if_open(dapi_disp)
         for w in series_wins: close_if_open(w); close_if_open(imp); IJ.run("Collect Garbage",""); return
 
-    # zurückskalieren falls nötig
+    # Rescale StarDist ROIs back to original image dimensions if pre-scaling was applied
     if work_w != orig_w or work_h != orig_h:
         sx = float(orig_w) / float(work_w)
         sy = float(orig_h) / float(work_h)
@@ -232,20 +232,20 @@ def process_series(imp, series, folder):
     else:
         rois_array = rois_rm[:]
 
-    # ROI-Manager mit Original-ROIs (nur zur Sicht)
+    # Reload rescaled ROIs into the ROI Manager for visualization
     rm.reset()
     for r in rois_array:
         try: rm.addRoi(r)
         except: pass
 
-    # --- Hintergrund (DAPI) ---
+    # --- Compute DAPI background mean and std using full-image statistics ---
     dapi_ip=dapi.getProcessor()
     if dapi_ip is None:
         IJ.log("No processor for DAPI in %s" % series); return
     bgstats = IS.getStatistics(dapi_ip, IS.MEAN | IS.STD_DEV, dapi.getCalibration())
     bg_mean, bg_sd = float(bgstats.mean), float(bgstats.stdDev)
 
-    # --- AOI: Intensität & Maske ---
+    # --- Generate binary AOI mask after optional background subtraction ---
     aoi_mask_ip=None; aoi_view=None
     if aoi is not None:
         aoi_proc=aoi.duplicate(); aoi_proc.setTitle(series+"__AOIproc"); aoi_proc.show(); ensure_gray8(aoi_proc)
@@ -258,7 +258,7 @@ def process_series(imp, series, folder):
         IJ.run(aoi_proc, "Convert to Mask", "black")
         aoi_mask_ip = aoi_proc.getProcessor()
 
-    # --- Filter + Messungen ---
+    # --- Apply size, intensity, and AOI overlap filters; collect per-ROI measurements ---
     kept=[]  # (roi, area_px, in_aoi, circ)
     for roi in rois_array:
         area_px=roi_area_pixels(dapi_ip, roi)
@@ -320,7 +320,7 @@ def process_series(imp, series, folder):
             image_name, series, ridx, area, circ_str, ("TRUE" if ina else "FALSE")
         ), PERROI_HDR)
 
-    # --- COMBO via RGBStackMerge: AOI rot (R) + DAPI blau (B); ROIs obenauf ---
+    # --- Build RGB composite: AOI in red, DAPI in blue, nucleus outlines drawn on top ---
     W, H = dapi_disp.getWidth(), dapi_disp.getHeight()
     dapi_gray = dapi_disp.duplicate(); ensure_gray8(dapi_gray)
     if ENHANCE: IJ.run(dapi_gray, "Enhance Contrast", "saturated=%.3f" % SAT_DAPI_PCT)
@@ -345,7 +345,7 @@ def process_series(imp, series, folder):
     FileSaver(combo).saveAsPng(out_dir.getAbsolutePath() + File.separator +
                                safe_name("%s__COMBO_AOIred_DAPIblue_NUC.png" % series))
 
-    # --- DAPI-only Overlay (nur Nuklei innerhalb AOI) ---
+    # --- DAPI-only overlay showing only nuclei that overlap the AOI ---
     ov_in = Overlay()
     for k in kept:
         if not k[2]: continue
@@ -358,7 +358,7 @@ def process_series(imp, series, folder):
     FileSaver(dapi_only).saveAsPng(out_dir.getAbsolutePath() + File.separator +
                                    safe_name("%s__DAPIonly_NUCinAOI.png" % series))
 
-    # Aufräumen
+    # Close temporary images and free memory
     for imx in (dapi_only, combo, dapi_gray, aoi_gray, blankG):
         close_if_open(imx)
     try:
@@ -370,7 +370,7 @@ def process_series(imp, series, folder):
     close_if_open(imp)
     IJ.run("Collect Garbage","")
 
-# -------- Hauptprozess --------
+# -------- Main process: iterate over all input files --------
 folder = DirectoryChooser("Select folder with images").getDirectory()
 if not folder:
     IJ.error("No folder selected"); raise SystemExit
@@ -396,7 +396,7 @@ for f in files:
     if not imps:
         IJ.log("No series: %s" % image_name); continue
 
-    # optional: Serie/T/Z halbieren
+    # Optionally restrict processing to the first or second half of series, time, or z frames
     if SPLIT_BY == "series" and len(imps) > 1:
         total=len(imps); cut=total//2
         sel = range(0, cut) if SPLIT_WHICH=="first" else range(cut, total)
