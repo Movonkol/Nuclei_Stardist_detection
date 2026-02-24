@@ -1,4 +1,4 @@
-rom ij import IJ, WindowManager
+from ij import IJ, WindowManager
 from ij.io import DirectoryChooser, FileSaver
 from java.io import File, FileWriter, BufferedWriter, PrintWriter
 from loci.plugins import BF
