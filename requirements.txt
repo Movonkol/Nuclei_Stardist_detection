@@ -1,21 +1,15 @@
-# StarDist Nuclei Detection Dependencies
+# Fiji Plugin Requirements for Nuclei StarDist Detection
+#
+# Install via: Help → Update… → Manage update sites… → tick the sites below,
+# then Close → Apply changes → restart Fiji.
 
-# Core dependencies
-numpy>=1.19.0
-scipy>=1.5.0
+# Required plugins / update sites
+Bio-Formats    # bundled with Fiji; opens .lif / .nd2 / .tif / .ome.tif
+StarDist       # nuclei segmentation (update site: StarDist)
+CSBDeep        # StarDist dependency – model execution (update site: CSBDeep)
+TensorFlow     # runtime backend for CSBDeep/StarDist (update site: TensorFlow)
+IJPB-plugins   # morphology / label operations (update site: IJPB-plugins)
+MorphoLibJ     # morphological filters and label maps (update site: IJPB-plugins)
 
-# Image processing
-scikit-image>=0.18.0
-tifffile>=2021.0.0
-Pillow>=8.0.0
-
-# StarDist and deep learning
-stardist>=0.8.0
-tensorflow>=2.6.0,<2.16.0  # StarDist requires TensorFlow
-csbdeep>=0.7.0
-
-# Visualization
-matplotlib>=3.3.0
-
-# Optional: GPU support (uncomment if you have CUDA-compatible GPU)
-# tensorflow-gpu>=2.6.0,<2.16.0
+# Optional
+TrackMate      # nuclei tracking across frames/series (update site: TrackMate)
