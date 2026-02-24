@@ -3,7 +3,7 @@
 # - Additional DAPI-only overlay showing only nuclei that fall inside the AOI
 # - Robust handling: safe LUT calls, index checks, None guards, garbage collection
 # - CSV (per-ROI): Area_px, Circ, In_AOI
-# - CSV (Summary): N_ROIs, N_In_AOI, Mean_Area_px, Mean_Circ, Mean_Circ_In_AOI
+# - CSV (Summary): N_ROIs, N_In_AOI, Mean_Area_px, Mean_Circ, Mean_circ_in_aoi
 
 from ij import IJ, WindowManager, ImagePlus
 from ij.io import DirectoryChooser, FileSaver
