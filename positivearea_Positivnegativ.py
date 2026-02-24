@@ -29,7 +29,7 @@ SCALE_FACTOR         = IJ.getNumber("Pre-scaling (0.5=down, 2.0=up; 1.0=off)", 1
 SIGMA_ABOVE_BG       = IJ.getNumber("Min sigma above background (0=off)", 1.5)
 MIN_MEAN_INTENSITY   = IJ.getNumber("Min mean intensity (0=off; image units)", 0)
 
-# Nucleus size filter range in square pixels
+# Nucleus size filter Range in square pixels
 size_min             = IJ.getNumber("Min label area (px^2)", 50)
 size_max             = IJ.getNumber("Max label area (px^2)", 2500)
 
