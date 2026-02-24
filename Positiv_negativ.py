@@ -1,8 +1,7 @@
-# Fiji / Jython — Nuclei Pos/Neg (StarDist-Detektion wie im AOI-Skript, ohne AOI)
-# - DAPI-Overlay in Blau speichern
-# - Marker-Overlay in Orange speichern
-# - StarDist -> ROI Manager, Rescale, DAPI-Intensitätsfilter (σ über BG außerhalb ROIs)
-# Autor: angepasst für Moritz (2025-08-30)
+# Fiji / Jython — Nuclei positive/negative classification (StarDist detection, no AOI)
+# - Save DAPI overlay with nucleus contours colored blue
+# - Save marker overlay with nucleus contours colored orange
+# - StarDist -> ROI Manager, rescale to original size, DAPI intensity filter (sigma above background outside ROIs)
 
 from ij import IJ, WindowManager, ImagePlus
 from ij.io import DirectoryChooser, FileSaver
@@ -19,12 +18,12 @@ from loci.plugins.in import ImporterOptions
 import time, re, jarray
 
 # ==========================
-#        EINSTELLUNGEN
+#          Settings
 # ==========================
-channel_patterns_str = IJ.getString("Channel patterns for DAPI (z.B. 'c1-,dapi,blue')", "c1-,dapi,blue")
+channel_patterns_str = IJ.getString("Channel patterns for DAPI (e.g. 'c1-,dapi,blue')", "c1-,dapi,blue")
 CHANNEL_PATTERNS = [p.strip().lower() for p in channel_patterns_str.split(",") if p.strip()]
 
-marker_keys_str = IJ.getString("Marker channel identifiers (comma-separated, z.B. 'c2-,c3-')", "c3-")
+marker_keys_str = IJ.getString("Marker channel identifiers (comma-separated, e.g. 'c2-,c3-')", "c3-")
 MARKER_CHANNEL_KEYS = [s.strip().lower() for s in marker_keys_str.split(',') if s.strip()][:6]
 
 marker_fixed = []
@@ -48,7 +47,7 @@ MARKER_OVERLAY_SAT = IJ.getNumber("Marker overlay saturation (%)", 0.35)
 model         = IJ.getString("StarDist model", "Versatile (fluorescent nuclei)")
 prob          = IJ.getNumber("Probability threshold", 0.5)
 nms           = IJ.getNumber("NMS threshold", 0.5)
-tiles_str     = IJ.getString("nTiles (e.g. '1,1')", "1,1")  # StarDist erwartet String
+tiles_str     = IJ.getString("nTiles (e.g. '1,1')", "1,1")  # StarDist expects a string like '1,1'
 N_TILES       = tiles_str
 
 SCALE_FACTOR  = IJ.getNumber("Pre-scaling (0.5=down, 2.0=up; 1.0=off)", 1.0)
@@ -64,7 +63,7 @@ COLOR_POS = Color(0,255,0)
 COLOR_NEG = Color(255,0,0)
 
 # ==========================
-#      HILFSFUNKTIONEN
+#      Helper functions
 # ==========================
 def close_stardist_dialogs():
     for w in WindowManager.getNonImageWindows():
@@ -159,7 +158,7 @@ def rescale_roi_to_original(roi, sx, sy):
     return nr
 
 # ==========================
-#        HAUPTPROZESS
+#      Main processing loop
 # ==========================
 folder = DirectoryChooser("Choose folder with images").getDirectory()
 if not folder:
@@ -208,7 +207,7 @@ for f in files:
             except: pass
             continue
 
-        # ===== Anzeige (DAPI blau) =====
+        # ===== Display DAPI channel as blue for visual reference =====
         try:
             disp = dapi.duplicate()
             try: IJ.run(disp, "Blue", "")
@@ -220,7 +219,7 @@ for f in files:
         except:
             disp = None
 
-        # ===== StarDist -> ROI Manager (wie AOI-Skript) =====
+        # ===== Run StarDist and populate ROI Manager with detected nuclei =====
         orig_w, orig_h = dapi.getWidth(), dapi.getHeight()
         work = dapi.duplicate(); work.setTitle(series_name + "_work"); work.show()
 
@@ -255,7 +254,7 @@ for f in files:
             except: pass
             continue
 
-        # zurückskalieren auf Original
+        # Rescale StarDist ROIs back to full-resolution coordinates if pre-scaling was used
         if abs(SCALE_FACTOR - 1.0) > 1e-6 and (work.getWidth()!=orig_w or work.getHeight()!=orig_h):
             sx = float(orig_w) / float(work.getWidth())
             sy = float(orig_h) / float(work.getHeight())
@@ -263,9 +262,9 @@ for f in files:
         else:
             rois_array = rois_rm[:]
 
-        # ===== DAPI-Filter (BG nur außerhalb ROIs) =====
+        # ===== Filter nuclei by DAPI intensity (background measured outside all ROIs) =====
         dapi_ip = dapi.getProcessor()
-        # Union der ROIs (für Hintergrund)
+        # Build a union of all ROIs to select the background region (everything outside nuclei)
         combined = None
         for r in rois_array:
             try:
@@ -283,7 +282,7 @@ for f in files:
             bg_stats = dapi.getStatistics(Measurements.MEAN | Measurements.STD_DEV)
         bg_mean, bg_sd = float(bg_stats.mean), float(bg_stats.stdDev)
 
-        # Größe / Intensität / σ-Filter + Circularity
+        # Keep only ROIs that pass size, mean intensity, and sigma-above-background filters
         kept_rois = []
         for roi in rois_array:
             area_px = roi_area_pixels(dapi_ip, roi)
@@ -307,7 +306,7 @@ for f in files:
             except: pass
             continue
 
-        # ===== Marker vorbereiten =====
+        # ===== Preprocess each marker channel (background subtraction and thresholds) =====
         marker_preps = []
         for idx, m in enumerate(markers[:len(MARKER_CHANNEL_KEYS)]):
             proc_imp, proc_ip = preprocess_marker(m)
@@ -317,7 +316,7 @@ for f in files:
         counts_header = "Image;Series;Marker;N_total;Positive;Negative;Percent_Positive"
         detail_header = "Image;Series;ROI_Index;Marker;ROI_px;PosPix;Is_Positive"
 
-        # ===== Klassifikation & Overlays =====
+        # ===== Classify each nucleus as positive or negative per marker channel and build overlays =====
         for midx, (m_orig, m_imp, m_ip, thr) in enumerate(marker_preps):
             pos_count = 0; neg_count = 0; total = 0
             ov = Overlay()
@@ -328,9 +327,8 @@ for f in files:
 
             for ridx, roi in enumerate(valid):
                 is_pos, roi_px, pospix = (False, 0, 0)
-                # pos/neg pro ROI
                 total += 1
-                # Klassifikation
+                # Count pixels in this ROI that meet or exceed the marker threshold
                 total_pix = 0; pos_pix = 0
                 for gx, gy in roi_pixel_iter(m_ip, roi):
                     total_pix += 1
@@ -361,8 +359,8 @@ for f in files:
             )
             export_counts_row(csv_counts, counts_row, counts_header)
 
-            # ---------- Overlays speichern ----------
-            # DAPI-Overlay: BLAU
+            # ---------- Save overlay images ----------
+            # DAPI overlay: apply blue LUT and draw positive/negative nucleus contours
             base_dapi = dapi.duplicate()
             try: IJ.run(base_dapi, "Blue", "")
             except:
@@ -379,7 +377,7 @@ for f in files:
                 try: base_dapi.changes=False; base_dapi.close()
                 except: pass
 
-            # Marker-Overlay: ORANGE
+            # Marker overlay: apply orange/warm LUT and draw the same positive/negative contours
             base_marker = m_imp.duplicate()
             applied = False
             for lutName in ["Orange Hot", "mpl-magma", "mpl-inferno"]:
@@ -400,7 +398,7 @@ for f in files:
                 try: base_marker.changes=False; base_marker.close()
                 except: pass
 
-        # Aufräumen
+        # Close all temporary images for this series and free memory
         try: work.changes=False; work.close()
         except: pass
         for (_, m_imp, _, _) in marker_preps:
@@ -412,5 +410,5 @@ for f in files:
         try: imp.changes=False; imp.close()
         except: pass
 
-IJ.log("Fertig. CSVs geschrieben:\n - " + csv_counts + "\n - " + csv_detail + "\nPNGs -> " + png_dir.getAbsolutePath())
+IJ.log("Done. CSVs written:\n - " + csv_counts + "\n - " + csv_detail + "\nPNGs -> " + png_dir.getAbsolutePath())
 
